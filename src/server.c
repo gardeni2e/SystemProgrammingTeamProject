@@ -624,7 +624,7 @@ static void *client_thread_main(void *arg) {
         return NULL;
     }
 
-    if (write_all(fd, "OK|hello\n", 10) != 0) {
+    if (write_all(fd, "OK|hello\n", strlen("OK|hello\n")) != 0) { // 초기 메뉴 로딩 원인 해결
         pthread_mutex_lock(&ctx->lock);
         server_unregister_fd(ctx, fd);
         pthread_mutex_unlock(&ctx->lock);
