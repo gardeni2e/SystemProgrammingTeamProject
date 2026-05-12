@@ -219,20 +219,42 @@ static void ui_merge_order_mirror(Order *orders, int *count, const Order *incomi
 
 static void ui_optional_chafa(const char *path) {
     struct stat st;
+
     if (stat(path, &st) != 0) {
+        clear();
+        mvprintw(0, 0, "이미지 파일을 찾을 수 없습니다.");
+        mvprintw(1, 0, "경로: %s", path);
+        mvprintw(3, 0, "아무 키나 누르면 돌아갑니다.");
+        refresh();
+        getch();
         return;
     }
+
+    // ncurses 화면 종료 후 일반 터미널 모드로 복귀
+    def_prog_mode();
+    endwin();
+
     pid_t pid = fork();
+
     if (pid == 0) {
         execlp("chafa", "chafa", "--size", "40x18", path, (char *)NULL);
+        perror("chafa 실행 실패");
         _exit(127);
     }
+
     if (pid > 0) {
-        endwin();
         int status = 0;
         waitpid(pid, &status, 0);
-        refresh();
+
+        printf("\n[이미지 출력 종료] Enter를 누르면 메뉴로 돌아갑니다...");
+        fflush(stdout);
+        getchar();
     }
+
+    // ncurses 화면 복구
+    reset_prog_mode();
+    refresh();
+    clear();
 }
 
 typedef enum {
@@ -440,7 +462,7 @@ void ui_run_pos(ServerContext *ctx) {
         if (tab == POS_TAB_ORDERS) {
             int ids[MAX_ORDERS];
             int nids = ui_pos_collect_done_ids(ctx, ids, MAX_ORDERS);
-            if (ch == KEY_UP) {
+            if (ch == KEY_UP) { 
                 sel_order = (sel_order + nids - 1) % (nids ? nids : 1);
             }
             if (ch == KEY_DOWN) {
@@ -587,16 +609,28 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         mvprintw(rows - 4, 0,
                  "SPACE 수량+, c 장바구니 가기 o 주문상태 k 직원호출 i 이미지");
     } else if (scr == TABLE_SCR_CART) {
-        int line = base;
-        for (int i = 0; i < cart->count && line < rows - 4; ++i) {
+    int line = base;
+    int footer_line = rows - 2;
+    int max_line = footer_line - 1;
+
+    if (cart->count == 0) {
+        mvprintw(line, 0, "장바구니가 비어 있습니다.");
+    } else {
+        for (int i = 0; i < cart->count && line <= max_line; ++i) {
             attrset(i == sel ? A_REVERSE : A_NORMAL);
-            mvprintw(line++, 0, "%s x%d (@%d)", cart->items[i].name,
-                     cart->items[i].qty, cart->items[i].price);
+            mvprintw(line++, 0, "%2d. %-26s x%d  @%d  = ₩%d",
+                     i + 1,
+                     cart->items[i].name,
+                     cart->items[i].qty,
+                     cart->items[i].price,
+                     cart->items[i].qty * cart->items[i].price);
             attrset(A_NORMAL);
         }
-        mvprintw(rows - 4, 0,
-                 "+/- 수량 r삭제 z주문확정화면 m메뉴 | 합계 ₩%d", cart_total(cart));
-    } else if (scr == TABLE_SCR_CONFIRM) {
+    }
+        mvprintw(footer_line, 0,
+             "+/- 수량 r삭제 z주문확정화면 m메뉴 | 합계 ₩%d",cart_total(cart));
+    }
+    else if (scr == TABLE_SCR_CONFIRM) {
         mvprintw(base, 0, "주문 합계: ₩%d", cart_total(cart));
         mvprintw(base + 2, 0, "Enter 확정 ESC 취소");
     } else if (scr == TABLE_SCR_STATUS) {
@@ -648,8 +682,14 @@ void ui_run_table(const TableUiArgs *args) {
     snprintf(hello, sizeof(hello), "HELLO TABLE %d\n", args->table_id);
     ui_send_line(sock, hello);
 
+    // 초기 메뉴 로드 (서버에서 안 오면 빈 메뉴로 시작) fallback
     MenuCatalog cat;
     menu_init_catalog(&cat);
+
+    char menu_err[160];
+    if (menu_load_file(&cat, "data/menu.csv", menu_err, sizeof(menu_err)) != 0) {
+        menu_init_catalog(&cat);
+    }
     Order mirror[MAX_ORDERS];
     int mirror_count = 0;
     memset(mirror, 0, sizeof(mirror));
