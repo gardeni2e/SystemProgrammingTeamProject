@@ -895,27 +895,85 @@ void ui_run_table(const TableUiArgs *args) {
     endwin();
 }
 
-static void ui_draw_kitchen(Order *orders, int count, int sel, int rows,
-                             int cols) {
-    (void)cols;
+static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int cols) {
     clear();
-    mvprintw(0, 0, "Kitchen Display | ↑↓ 선택 · c 조리중 · d 완료");
-    int shown = 0;
-    for (int i = 0; i < count && shown < rows - 5; ++i) {
+    // 상단 안내 문구에 재조리(복귀) 설명 추가
+    mvprintw(0, 0, "Kitchen Display | ↑↓ 선택 · c 조리 · d 완료");
+
+    int col_w = cols / 3;
+
+    // 1. 박스(U자 형태) 및 영역 제목 그리기
+    for (int i = 0; i < 3; ++i) {
+        int start_x = i * col_w + 1;
+        int end_x = (i + 1) * col_w - 2;
+
+        // 제목
+        if (i == 0) mvprintw(2, start_x + 2, "Waiting");
+        if (i == 1) mvprintw(2, start_x + 2, "Cooking");
+        if (i == 2) mvprintw(2, start_x + 2, "Done.");
+
+        // U자 형태의 테두리 그리기 (좌, 우, 하단)
+        for (int y = 3; y < rows - 2; ++y) {
+            mvaddch(y, start_x, ACS_VLINE);
+            mvaddch(y, end_x, ACS_VLINE);
+        }
+        mvhline(rows - 2, start_x + 1, ACS_HLINE, end_x - start_x - 1);
+        mvaddch(rows - 2, start_x, ACS_LLCORNER);  // 좌측 하단 모서리
+        mvaddch(rows - 2, end_x, ACS_LRCORNER);    // 우측 하단 모서리
+    }
+
+    // 2. 각 상태별로 다음 주문이 그려질 Y축 좌표 초기화
+    int y_wait = 4, y_cook = 4, y_done = 4;
+    int shown = 0; // 선택(sel) 하이라이트를 위한 인덱스
+
+    for (int i = 0; i < count; ++i) {
         Order *o = &orders[i];
+        
+        // 결제 완료(PAID)된 주문은 화면에서 제외
         if (o->status == STATUS_PAID) {
             continue;
         }
-        attrset(shown == sel ? A_REVERSE : A_NORMAL);
-        mvprintw(3 + shown, 0, "#%04d T%02d %-8s ₩%-6d", o->order_id,
-                 o->table_id, status_to_string(o->status), o->total_price);
-        attrset(A_NORMAL);
-        mvprintw(3 + shown, 40, "%s",
-                 o->item_count ? o->items[0].name : "-");
+
+        int curr_x = 0;
+        int curr_y = 0;
+
+        // 3. 주문 상태에 따라 출력될 위치(X, Y) 결정
+        if (o->status == STATUS_WAITING) {       // enum 이름이 STATUS_ORDERED 라면 변경해주세요.
+            curr_x = 0 * col_w + 3;
+            curr_y = y_wait++;
+        } else if (o->status == STATUS_COOKING) {
+            curr_x = 1 * col_w + 3;
+            curr_y = y_cook++;
+        } else if (o->status == STATUS_DONE) {
+            curr_x = 2 * col_w + 3;
+            curr_y = y_done++;
+        } else {
+            continue;
+        }
+
+        // 박스 하단을 벗어나면 출력 생략
+        if (curr_y >= rows - 3) continue;
+
+        // 4. 선택된 항목 하이라이트 및 내용 출력
+        if (shown == sel) {
+            attron(A_REVERSE);
+        }
+        
+        // 그림과 같이 주문번호와 테이블 번호 출력
+        mvprintw(curr_y, curr_x, "#%04d T%02d", o->order_id, o->table_id);
+        
+        // (선택) 박스 공간이 남는다면 메뉴 이름도 옆에 살짝 띄워줍니다. 
+        if (o->item_count > 0) {
+            mvprintw(curr_y, curr_x + 12, "%.8s", o->items[0].name);
+        }
+
+        if (shown == sel) {
+            attroff(A_REVERSE);
+        }
+        
         shown++;
     }
 }
-
 static int ui_kitchen_collect_active(Order *orders, int count, int *ids,
                                      int max_ids) {
     int n = 0;
@@ -926,7 +984,6 @@ static int ui_kitchen_collect_active(Order *orders, int count, int *ids,
     }
     return n;
 }
-
 void ui_run_kitchen(const KitchenUiArgs *args) {
     ui_locale_utf8();
     initscr();
@@ -971,8 +1028,7 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
         if (strncmp(tmp, "ORDER_EVENT|", 12) == 0) {
             Order ordtmp;
             char er[80];
-            if (proto_parse_order_broadcast(tmp, &ordtmp, er, sizeof(er)) ==
-                0) {
+            if (proto_parse_order_broadcast(tmp, &ordtmp, er, sizeof(er)) == 0) {
                 ui_merge_order_mirror(board, &bn, &ordtmp);
             }
         }
@@ -987,8 +1043,7 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
             if (strncmp(netline, "ORDER_EVENT|", 12) == 0) {
                 Order tmp;
                 char er[80];
-                if (proto_parse_order_broadcast(netline, &tmp, er, sizeof(er)) ==
-                    0) {
+                if (proto_parse_order_broadcast(netline, &tmp, er, sizeof(er)) == 0) {
                     ui_merge_order_mirror(board, &bn, &tmp);
                 }
             } else if (strncmp(netline, "STAFF_CALL|", 11) == 0) {
@@ -1006,25 +1061,68 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
         if (ch == 'q' || ch == 'Q') {
             break;
         }
+        
+        // 상하 방향키: 주문 선택 하이라이트 이동
         if (ch == KEY_UP) {
             sel = (sel + nids - 1) % (nids ? nids : 1);
         }
         if (ch == KEY_DOWN) {
             sel = (sel + 1) % (nids ? nids : 1);
         }
+
+        // 좌우 방향키: 주문 상태 변경 (스택 간 이동)
         if (nids > 0 && sel < nids) {
             int oid = ids[sel];
-            if (ch == 'c') {
-                char buf[128];
-                snprintf(buf, sizeof(buf),
-                         "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
-                ui_send_line(sock, buf);
+            
+            // 현재 선택된 주문의 실제 상태(status)를 찾기
+            Order *selected_order = NULL;
+            for (int i = 0; i < bn; ++i) {
+                if (board[i].order_id == oid) {
+                    selected_order = &board[i];
+                    break;
+                }
             }
-            if (ch == 'd') {
-                char buf[128];
-                snprintf(buf, sizeof(buf),
-                         "ORDER_UPDATE|order_id=%d|status=DONE\n", oid);
-                ui_send_line(sock, buf);
+
+            if (selected_order != NULL) {
+                char buf[128] = {0};
+
+                // 우측 화살표 (→) : 다음 단계로 진행 (대기 -> 조리 -> 완료)
+                if (ch == KEY_RIGHT) {
+                    if (selected_order->status == STATUS_WAITING) { 
+                        snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
+                    } else if (selected_order->status == STATUS_COOKING) {
+                        snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=DONE\n", oid);
+                    }
+                }
+                
+                // 좌측 화살표 (←) : 이전 단계로 복귀 (완료 -> 조리 -> 대기)
+                else if (ch == KEY_LEFT) {
+                    if (selected_order->status == STATUS_DONE) {
+                        snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
+                    } else if (selected_order->status == STATUS_COOKING) {
+                        snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=WAITING\n", oid); 
+                    }
+                }
+
+                // 단축키 'c' 또는 'C' : 무조건 '조리 중(COOKING)'으로 상태 변경
+                else if (ch == 'c' || ch == 'C') {
+                    // 대기 중이거나 완료 상태일 때 모두 조리 중으로 이동 가능
+                    if (selected_order->status != STATUS_COOKING) {
+                        snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
+                    }
+                }
+                
+                // 단축키 'd' 또는 'D' : 무조건 '완료(DONE)'로 상태 변경
+                else if (ch == 'd' || ch == 'D') {
+                    if (selected_order->status != STATUS_DONE) {
+                        snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=DONE\n", oid);
+                    }
+                }
+
+                // 변경 사항이 있으면 서버로 업데이트 패킷 전송
+                if (buf[0] != '\0') {
+                    ui_send_line(sock, buf);
+                }
             }
         }
     }

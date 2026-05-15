@@ -385,6 +385,13 @@ static int valid_kitchen_transition(OrderStatus cur, OrderStatus nw) {
     if (cur == STATUS_WAITING && nw == STATUS_DONE) {
         return 1;
     }
+    if (cur == STATUS_DONE && nw == STATUS_COOKING) {
+        return 1;
+    }
+    if (cur == STATUS_COOKING && nw == STATUS_WAITING) {
+        return 1;
+    }
+
     return 0;
 }
 
