@@ -31,6 +31,7 @@ typedef struct ServerContext {
     int accept_thread_started;
     char last_staff_message[160];
     time_t last_staff_time;
+    time_t staff_call_at[MAX_TABLES + 1];
 } ServerContext;
 
 void server_install_sigint_handler(ServerContext *ctx);
