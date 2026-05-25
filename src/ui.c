@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/types.h>
 #include <locale.h>
 #include <time.h>
 #include <unistd.h>
@@ -255,6 +256,66 @@ static void ui_optional_chafa(const char *path) {
     reset_prog_mode();
     refresh();
     clear();
+}
+
+static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
+    char path[128];
+    struct stat st;
+
+    snprintf(path, sizeof(path), "data/img_%d.png", menu_id);
+
+    if (stat(path, &st) != 0) {
+        const char *msg = "[no image]";
+        int msg_x = x + (w - (int)strlen(msg)) / 2;
+        int msg_y = y + h / 2;
+
+        if (msg_x < x) {
+            msg_x = x;
+        }
+
+        printf("\033[%d;%dH%s\033[0m", msg_y + 1, msg_x + 1, msg);
+        fflush(stdout);
+        return;
+    }
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+             "chafa --size %dx%d --symbols=block --dither=ordered %s 2>/dev/null",
+             w, h, path);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        printf("\033[%d;%dH[image error]\033[0m", y + h / 2 + 1, x + 2);
+        fflush(stdout);
+        return;
+    }
+
+    char *line = NULL;
+    size_t cap = 0;
+    ssize_t len;
+    int r = 0;
+
+    while (r < h && (len = getline(&line, &cap, fp)) != -1) {
+        if (len > 0 && line[len - 1] == '\n') {
+            line[len - 1] = '\0';
+        }
+
+        printf("\033[%d;%dH%s\033[0m", y + r + 1, x + 1, line);
+        r++;
+    }
+
+    free(line);
+    pclose(fp);
+
+    printf("\033[0m");
+    fflush(stdout);
+}
+
+static void ui_clear_rect(int y, int x, int w, int h) {
+    for (int r = 0; r < h; ++r) {
+        printf("\033[%d;%dH%*s", y + r + 1, x + 1, w, "");
+    }
+    fflush(stdout);
 }
 
 typedef enum {
@@ -583,11 +644,20 @@ static void ui_send_line(int sock, const char *s) {
     ui_write_all(sock, s, strlen(s));
 }
 
+static int last_menu_sel = -1;
+static int last_menu_page = -1;
+static int last_menu_rows = -1;
+static int last_menu_cols = -1;
+static TableScreen last_table_screen = -1;
+
+
 static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
                                const Cart *cart, int rows, int cols, int sel,
                                int table_id, const char *banner) {
-    (void)cols;
-    clear();
+
+    if (scr != TABLE_SCR_MENU || last_table_screen != scr) {
+        clear();
+    }
     mvprintw(0, 0, "Table %d | 화면:%s | 장바구니 줄 %d", table_id,
              scr == TABLE_SCR_MENU ? "메뉴"
              : scr == TABLE_SCR_CART ? "장바구니"
@@ -599,16 +669,208 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
     }
     int base = 3;
     if (scr == TABLE_SCR_MENU) {
-        for (int i = 0; i < cat->count && base + i < rows - 4; ++i) {
-            const MenuItem *m = &cat->items[i];
-            attrset(i == sel ? A_REVERSE : A_NORMAL);
-            mvprintw(base + i, 0, "%3d %-26s ₩%-6d %s", m->id, m->name,
-                     m->price, m->sold_out ? "[품절]" : "");
-            attrset(A_NORMAL);
+        const int grid_cols = 4;
+        const int grid_rows = 4;
+        const int page_size = 16;
+
+        int page = sel / page_size;
+        int page_start = page * page_size;
+        int total_pages = (cat->count + page_size - 1) / page_size;
+        int need_image_redraw = 0;
+
+        if (sel != last_menu_sel ||
+            page != last_menu_page ||
+            rows != last_menu_rows ||
+            cols != last_menu_cols ||
+            last_table_screen != scr) {
+            need_image_redraw = 1;
         }
-        mvprintw(rows - 4, 0,
-                 "SPACE 수량+, c 장바구니 가기 o 주문상태 k 직원호출 i 이미지");
+
+        int footer_y = rows - 3;
+        int grid_top = base;
+        int usable_h = footer_y - grid_top;
+
+        int preview_w = cols / 3;
+        int grid_w = cols - preview_w - 2;
+
+        int cell_w = grid_w / grid_cols;
+        int cell_h = usable_h / grid_rows;
+
+        int preview_x = grid_w + 2;
+        int preview_y = grid_top;
+        int preview_h = usable_h - 5;
+
+        if (total_pages <= 0) {
+            total_pages = 1;
+        }
+
+        if (cell_w < 14 || cell_h < 6 || preview_w < 24) {
+            mvprintw(base, 0, "터미널 크기가 너무 작습니다.");
+            mvprintw(base + 1, 0, "4x4 메뉴판 + 이미지 미리보기를 보려면 터미널을 더 크게 해주세요.");
+            return;
+        }
+
+        /*
+        * 왼쪽 4x4 메뉴판
+        */
+        for (int n = 0; n < page_size; ++n) {
+            int idx = page_start + n;
+            int gr = n / grid_cols;
+            int gc = n % grid_cols;
+
+            int y = grid_top + gr * cell_h;
+            int x = gc * cell_w;
+
+            int inner_x = x + 1;
+            int inner_y = y + 1;
+            int inner_w = cell_w - 2;
+            int img_h = cell_h - 4;
+
+            /*
+            * 칸 테두리
+            */
+            mvhline(y, x, ACS_HLINE, cell_w - 1);
+            mvhline(y + cell_h - 1, x, ACS_HLINE, cell_w - 1);
+            mvvline(y, x, ACS_VLINE, cell_h);
+            mvvline(y, x + cell_w - 1, ACS_VLINE, cell_h);
+            mvaddch(y, x, ACS_ULCORNER);
+            mvaddch(y, x + cell_w - 1, ACS_URCORNER);
+            mvaddch(y + cell_h - 1, x, ACS_LLCORNER);
+            mvaddch(y + cell_h - 1, x + cell_w - 1, ACS_LRCORNER);
+
+            if (idx >= cat->count) {
+                continue;
+            }
+
+            const MenuItem *m = &cat->items[idx];
+
+            if (idx == sel) {
+                attron(A_REVERSE | A_BOLD);
+            }
+
+            /*
+            * 작은 썸네일
+            */
+            if (need_image_redraw) {
+                ui_clear_rect(inner_y, inner_x, inner_w, img_h);
+                ui_draw_chafa_image(inner_y, inner_x, inner_w, img_h, m->id);
+            }
+
+            /*
+            * 메뉴 이름, 가격
+            */
+            mvprintw(y + cell_h - 3, inner_x, "%-*.*s",
+                    inner_w, inner_w, m->name);
+
+            if (m->sold_out) {
+                mvprintw(y + cell_h - 2, inner_x, "%-*.*s",
+                        inner_w, inner_w, "[품절]");
+            } else {
+                mvprintw(y + cell_h - 2, inner_x, "₩%-*d",
+                        inner_w - 1, m->price);
+            }
+
+            if (idx == sel) {
+                attroff(A_REVERSE | A_BOLD);
+            }
+        }
+
+        /*
+        * 오른쪽 큰 이미지 프리뷰
+        */
+        if (cat->count > 0 && sel >= 0 && sel < cat->count) {
+            const MenuItem *m = &cat->items[sel];
+
+            mvprintw(preview_y, preview_x, "선택 메뉴 크게 보기");
+
+            mvhline(preview_y + 1, preview_x, ACS_HLINE, preview_w - 2);
+            mvvline(preview_y + 2, preview_x, ACS_VLINE, preview_h);
+            mvvline(preview_y + 2, preview_x + preview_w - 1, ACS_VLINE, preview_h);
+            mvhline(preview_y + preview_h + 2, preview_x, ACS_HLINE, preview_w - 2);
+
+            mvaddch(preview_y + 1, preview_x, ACS_ULCORNER);
+            mvaddch(preview_y + 1, preview_x + preview_w - 1, ACS_URCORNER);
+            mvaddch(preview_y + preview_h + 2, preview_x, ACS_LLCORNER);
+            mvaddch(preview_y + preview_h + 2, preview_x + preview_w - 1, ACS_LRCORNER);
+
+        if (need_image_redraw) {
+            ui_clear_rect(preview_y + 2,
+                        preview_x + 1,
+                        preview_w - 2,
+                        preview_h);
+
+            ui_draw_chafa_image(preview_y + 2,
+                                preview_x + 1,
+                                preview_w - 2,
+                                preview_h,
+                                m->id);
+        }
+
+            mvprintw(preview_y + preview_h + 4, preview_x, "메뉴명: %s", m->name);
+
+            if (m->sold_out) {
+                mvprintw(preview_y + preview_h + 5, preview_x, "상태: 품절");
+            } else {
+                mvprintw(preview_y + preview_h + 5, preview_x, "가격: %d원", m->price);
+            }
+        }
+
+        mvprintw(rows - 2, 0,
+                "↑↓←→ 선택  SPACE 담기  c 장바구니  o 주문상태  k 직원호출  q 종료  | Page %d/%d",
+                page + 1, total_pages);
+
+        last_menu_sel = sel;
+        last_menu_page = page;
+        last_menu_rows = rows;
+        last_menu_cols = cols;
+        last_table_screen = scr;
+
+        refresh();
+
+        /*
+        * ncurses로 전체 UI를 먼저 그린 뒤,
+        * chafa 이미지만 터미널에 직접 출력한다.
+        */
+        for (int n = 0; n < page_size; ++n) {
+            int idx = page_start + n;
+
+            if (idx >= cat->count) {
+                continue;
+            }
+
+            int gr = n / grid_cols;
+            int gc = n % grid_cols;
+
+            int y = grid_top + gr * cell_h;
+            int x = gc * cell_w;
+
+            int inner_x = x + 1;
+            int inner_y = y + 1;
+            int inner_w = cell_w - 2;
+            int img_h = cell_h - 4;
+
+            const MenuItem *m = &cat->items[idx];
+
+            ui_draw_chafa_image(inner_y, inner_x, inner_w, img_h, m->id);
+        }
+
+        /*
+        * 오른쪽 큰 프리뷰 이미지 출력
+        */
+        if (cat->count > 0 && sel >= 0 && sel < cat->count) {
+            const MenuItem *m = &cat->items[sel];
+
+            ui_draw_chafa_image(preview_y + 2,
+                                preview_x + 1,
+                                preview_w - 2,
+                                preview_h,
+                                m->id);
+        }
     } else if (scr == TABLE_SCR_CART) {
+    last_table_screen = scr;
+    last_menu_sel = -1;
+    last_menu_page = -1;
+        
     int line = base;
     int footer_line = rows - 2;
     int max_line = footer_line - 1;
@@ -631,9 +893,16 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
              "+/- 수량 r삭제 z주문확정화면 m메뉴 | 합계 ₩%d",cart_total(cart));
     }
     else if (scr == TABLE_SCR_CONFIRM) {
+        last_table_screen = scr;
+        last_menu_sel = -1;
+        last_menu_page = -1;
+
         mvprintw(base, 0, "주문 합계: ₩%d", cart_total(cart));
         mvprintw(base + 2, 0, "Enter 확정 ESC 취소");
     } else if (scr == TABLE_SCR_STATUS) {
+        last_table_screen = scr;
+        last_menu_sel = -1;
+        last_menu_page = -1;
         mvprintw(base, 0, "%s", "네트워크 동기화된 주문 상태");
     }
 }
@@ -773,51 +1042,79 @@ void ui_run_table(const TableUiArgs *args) {
 
         if (scr == TABLE_SCR_MENU) {
             int mc = cat.count;
-            if (ch == KEY_UP) {
-                sel = (sel + mc - 1) % (mc ? mc : 1);
+            const int grid_cols = 4;
+
+            if (mc > 0) {
+                if (ch == KEY_UP) {
+                    if (sel - grid_cols >= 0) {
+                        sel -= grid_cols;
+                    }
+                }
+
+                if (ch == KEY_DOWN) {
+                    if (sel + grid_cols < mc) {
+                        sel += grid_cols;
+                    }
+                }
+
+                if (ch == KEY_LEFT) {
+                    if (sel > 0) {
+                        sel--;
+                    }
+                }
+
+                if (ch == KEY_RIGHT) {
+                    if (sel + 1 < mc) {
+                        sel++;
+                    }
+                }
+
+                if (sel < 0) {
+                    sel = 0;
+                }
+
+                if (sel >= mc) {
+                    sel = mc - 1;
+                }
             }
-            if (ch == KEY_DOWN) {
-                sel = (sel + 1) % (mc ? mc : 1);
-            }
+
             if (ch == ' ') {
                 if (mc > 0) {
                     const MenuItem *m = &cat.items[sel];
+
                     if (!m->sold_out) {
                         CartItem ci;
                         memset(&ci, 0, sizeof(ci));
+
                         ci.menu_id = m->id;
                         strncpy(ci.name, m->name, sizeof(ci.name) - 1);
                         ci.price = m->price;
                         ci.qty = 1;
+
                         cart_add(&cart, &ci, err, sizeof(err));
                     } else {
                         snprintf(banner, sizeof(banner), "품절 메뉴입니다");
                     }
                 }
             }
+
             if (ch == 'c') {
                 scr = TABLE_SCR_CART;
                 sel = 0;
             }
+
             if (ch == 'o') {
                 scr = TABLE_SCR_STATUS;
             }
+
             if (ch == 'm') {
                 scr = TABLE_SCR_MENU;
             }
+
             if (ch == 'k') {
                 char buf[80];
-                snprintf(buf, sizeof(buf), "CALL_STAFF|table=%d\n",
-                         args->table_id);
+                snprintf(buf, sizeof(buf), "CALL_STAFF|table=%d\n", args->table_id);
                 ui_send_line(sock, buf);
-            }
-            if (ch == 'i') {
-                if (mc > 0) {
-                    char path[128];
-                    snprintf(path, sizeof(path), "data/img_%d.png",
-                             cat.items[sel].id);
-                    ui_optional_chafa(path);
-                }
             }
         } else if (scr == TABLE_SCR_CART) {
             int lines = cart.count;
