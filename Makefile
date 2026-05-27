@@ -5,7 +5,7 @@ LDFLAGS := -pthread -lncursesw
 BINDIR := bin
 SRCDIR := src
 
-COMMON_SRC := common.c protocol.c menu.c order.c storage.c
+COMMON_SRC := common.c protocol.c menu.c order.c storage.c layout.c
 COMMON_OBJ := $(COMMON_SRC:%.c=$(BINDIR)/%.o)
 
 POS_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(BINDIR)/ui.o $(BINDIR)/pos_server.o
