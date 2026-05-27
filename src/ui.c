@@ -1,10 +1,16 @@
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
+#include <wchar.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -219,7 +225,7 @@ static void ui_merge_order_mirror(Order *orders, int *count, const Order *incomi
     }
 }
 
-static void ui_optional_chafa(const char *path) {
+static void __attribute__((unused)) ui_optional_chafa(const char *path) {
     struct stat st;
 
     if (stat(path, &st) != 0) {
@@ -232,7 +238,7 @@ static void ui_optional_chafa(const char *path) {
         return;
     }
 
-    // ncurses 화면 종료 후 일반 터미널 모드로 복귀
+    
     def_prog_mode();
     endwin();
 
@@ -253,7 +259,7 @@ static void ui_optional_chafa(const char *path) {
         getchar();
     }
 
-    // ncurses 화면 복구
+    
     reset_prog_mode();
     refresh();
     clear();
@@ -291,9 +297,8 @@ static void ui_clear_rect(int y, int x, int w, int h) {
     }
 
     for (int r = 0; r < h; ++r) {
-        printf("\033[%d;%dH%*s", y + r + 1, x + 1, w, "");
+        mvprintw(y + r, x, "%*s", w, "");
     }
-    fflush(stdout);
 }
 
 static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
@@ -313,8 +318,7 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
         if (msg_x < x) {
             msg_x = x;
         }
-        printf("\033[%d;%dH%s\033[0m", msg_y + 1, msg_x + 1, msg);
-        fflush(stdout);
+        mvprintw(msg_y, msg_x, "%.*s", w, msg);
         return;
     }
 
@@ -354,8 +358,7 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
     FILE *fp = popen(cmd, "r");
     if (!fp) {
         const char *msg = "[image error]";
-        printf("\033[%d;%dH%s\033[0m", y + h / 2 + 1, x + 2, msg);
-        fflush(stdout);
+        mvprintw(y + h / 2, x + 2, "%.*s", w - 2, msg);
         return;
     }
 
@@ -368,14 +371,13 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
         if (len > 0 && line[len - 1] == '\n') {
             line[len - 1] = '\0';
         }
-        printf("\033[%d;%dH%s\033[0m", draw_y + r + 1, draw_x + 1, line);
+        
+        mvprintw(draw_y + r, draw_x, "%-*.*s", draw_w, draw_w, line);
         r++;
     }
 
     free(line);
     pclose(fp);
-    printf("\033[0m");
-    fflush(stdout);
 }
 
 #define CP_NORMAL        1
@@ -418,7 +420,7 @@ static void ui_attr_off(int pair) {
     }
 }
 
-static void ui_fill_rect_color(int y, int x, int w, int h, int color_pair) {
+static void __attribute__((unused)) ui_fill_rect_color(int y, int x, int w, int h, int color_pair) {
     ui_attr_on(color_pair);
     for (int r = 0; r < h; ++r) {
         mvprintw(y + r, x, "%*s", w, "");
@@ -549,10 +551,10 @@ static void ui_draw_sidebar_button(int y, int x, int w,
     mvaddch(y + 2, x, ACS_LLCORNER);
     mvaddch(y + 2, x + w - 1, ACS_LRCORNER);
 
-    /* 버튼 내부 한 줄 전체를 먼저 비움 */
+    
     mvprintw(y + 1, x + 1, "%-*s", inner_w, "");
 
-    /* 라벨 출력 */
+    
     mvprintw(y + 1, x + 2, "%-*.*s", inner_w - 2, inner_w - 2, label);
 
     if (selected) {
@@ -566,7 +568,7 @@ static void ui_draw_sidebar_button(int y, int x, int w,
     }
 }
 
-static void ui_draw_badge(int y, int x, int count) {
+static void __attribute__((unused)) ui_draw_badge(int y, int x, int count) {
     if (count <= 0) {
         return;
     }
@@ -601,6 +603,223 @@ typedef struct {
 #define POS_COLOR_ACTIVE 4
 
 static int ui_layout_active_count(const StoreLayout *layout);
+
+typedef struct {
+    int top;
+    int left;
+    int h;
+    int w;
+} UiRect;
+
+static UiRect ui_rect(int top, int left, int h, int w) {
+    UiRect r;
+    r.top = top;
+    r.left = left;
+    r.h = h;
+    r.w = w;
+    return r;
+}
+
+static int ui_rect_contains(const UiRect *r, int y, int x) {
+    return y >= r->top && y < r->top + r->h && x >= r->left &&
+           x < r->left + r->w;
+}
+
+
+static void ui_pos_draw_box(UiRect r, const char *title) {
+    if (r.h < 3 || r.w < 6) {
+        return;
+    }
+    mvaddch(r.top, r.left, ACS_ULCORNER);
+    mvaddch(r.top, r.left + r.w - 1, ACS_URCORNER);
+    mvaddch(r.top + r.h - 1, r.left, ACS_LLCORNER);
+    mvaddch(r.top + r.h - 1, r.left + r.w - 1, ACS_LRCORNER);
+    for (int x = 1; x < r.w - 1; ++x) {
+        mvaddch(r.top, r.left + x, ACS_HLINE);
+        mvaddch(r.top + r.h - 1, r.left + x, ACS_HLINE);
+    }
+    for (int y = 1; y < r.h - 1; ++y) {
+        mvaddch(r.top + y, r.left, ACS_VLINE);
+        mvaddch(r.top + y, r.left + r.w - 1, ACS_VLINE);
+    }
+    for (int y = 1; y < r.h - 1; ++y) {
+        move(r.top + y, r.left + 1);
+        for (int x = 1; x < r.w - 1; ++x) {
+            addch(' ');
+        }
+    }
+
+    if (title && title[0] && r.w > 4) {
+        int max = r.w - 4;
+        char tbuf[96];
+        snprintf(tbuf, sizeof(tbuf), "%.*s", max, title);
+        mvprintw(r.top, r.left + 2, "%s", tbuf);
+    }
+}
+
+static void ui_pos_draw_button_in(UiRect panel, int row, int color_pair,
+                                  const char *label) {
+    int y = panel.top + 1 + row;
+    int x = panel.left + 2;
+    int w = panel.w - 4;
+    int h = 3;
+
+    if (panel.w < 10 || panel.h < row + h + 2) {
+        return;
+    }
+    if (w < 8) {
+        return;
+    }
+
+    if (has_colors()) {
+        attron(COLOR_PAIR(color_pair));
+    }
+    attron(A_BOLD);
+
+    mvhline(y, x, ACS_HLINE, w);
+    mvhline(y + h - 1, x, ACS_HLINE, w);
+    mvvline(y, x, ACS_VLINE, h);
+    mvvline(y, x + w - 1, ACS_VLINE, h);
+    mvaddch(y, x, ACS_ULCORNER);
+    mvaddch(y, x + w - 1, ACS_URCORNER);
+    mvaddch(y + h - 1, x, ACS_LLCORNER);
+    mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+
+    mvprintw(y + 1, x + 1, "%-*s", w - 2, "");
+    mvprintw(y + 1, x + 2, "%-*.*s", w - 4, w - 4, label);
+
+    attroff(A_BOLD);
+    if (has_colors()) {
+        attroff(COLOR_PAIR(color_pair));
+    }
+}
+
+static void ui_pos_print_in(UiRect r, int row, int col, attr_t attrs,
+                            const char *fmt, ...) {
+    if (row < 0 || col < 0) {
+        return;
+    }
+    int y = r.top + 1 + row;
+    int x = r.left + 1 + col;
+    if (!ui_rect_contains(&r, y, x)) {
+        return;
+    }
+    int maxw = r.left + r.w - 2 - x;
+    if (maxw <= 0) {
+        return;
+    }
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    buf[sizeof(buf) - 1] = '\0';
+
+    attrset(attrs);
+    mvprintw(y, x, "%.*s", maxw, buf);
+    attrset(A_NORMAL);
+}
+
+static const char *ui_pos_tab_name(PosTab t) {
+    switch (t) {
+    case POS_TAB_HOME:
+        return "테이블";
+    case POS_TAB_PAYMENT:
+        return "결제";
+    case POS_TAB_MENU:
+        return "메뉴";
+    case POS_TAB_SALES:
+        return "매출";
+    case POS_TAB_LAYOUT:
+        return "배치";
+    }
+    return "POS";
+}
+
+static int ui_display_width(const char *s) {
+    if (!s || !s[0]) {
+        return 0;
+    }
+
+    mbstate_t st;
+    memset(&st, 0, sizeof(st));
+
+    int w = 0;
+    const char *p = s;
+    while (*p) {
+        wchar_t wc;
+        size_t r = mbrtowc(&wc, p, MB_CUR_MAX, &st);
+        if (r == (size_t)-1 || r == (size_t)-2) {
+            p++;
+            w++;
+            memset(&st, 0, sizeof(st));
+            continue;
+        }
+        if (r == 0) {
+            break;
+        }
+        int cw = wcwidth(wc);
+        if (cw < 0) {
+            cw = 1;
+        }
+        w += cw;
+        p += r;
+    }
+    return w;
+}
+
+static void ui_pos_layout_frame(int rows, int cols, PosTab tab,
+                                UiRect *out_header, UiRect *out_main,
+                                UiRect *out_side, UiRect *out_footer) {
+    int header_h = 2;
+    int footer_h = 2;
+    int inner_top = header_h;
+    int inner_h = rows - header_h - footer_h;
+    if (inner_h < 6) {
+        inner_h = 6;
+    }
+    int side_w = cols / 3;
+    if (side_w < 26) {
+        side_w = 26;
+    }
+    if (side_w > 42) {
+        side_w = 42;
+    }
+    int main_w = cols - side_w - 1;
+    if (main_w < 20) {
+        main_w = cols;
+        side_w = 0;
+    }
+
+    *out_header = ui_rect(0, 0, header_h, cols);
+    *out_footer = ui_rect(rows - footer_h, 0, footer_h, cols);
+
+    *out_main = ui_rect(inner_top, 0, inner_h, main_w);
+    if (side_w > 0) {
+        *out_side = ui_rect(inner_top, main_w + 1, inner_h, side_w);
+    } else {
+        *out_side = ui_rect(inner_top, cols, inner_h, 0);
+    }
+
+    move(0, 0);
+    clrtoeol();
+    mvprintw(0, 1, "POS");
+    mvprintw(0, 6, "│ %s", ui_pos_tab_name(tab));
+    
+    const char *keys =
+        "F1 테이블  F2 결제  F3 메뉴  F4 매출  F5 배치편집";
+    int klen = ui_display_width(keys);
+    int x = cols - klen;
+    if (x < 0) {
+        x = 0;
+    }
+    mvprintw(0, x, "%s", keys);
+
+    move(1, 0);
+    clrtoeol();
+    mvhline(1, 0, ' ', cols);
+    (void)tab;
+}
 
 static void ui_pos_init_colors(void) {
     if (!has_colors()) {
@@ -710,25 +929,62 @@ static void ui_pos_draw_table_box(int top, int left, int h, int w,
 static void ui_draw_pos_home(ServerContext *ctx, const StoreLayout *layout,
                              int cur_row, int cur_col, int rows, int cols) {
     clear();
-    mvprintw(0, 0, "POS | 테이블 배치 (%dx%d 그리드, %d석)",
-             layout->grid_cols, layout->grid_rows,
-             ui_layout_active_count(layout));
+    UiRect header, main, side, footer;
+    ui_pos_layout_frame(rows, cols, POS_TAB_HOME, &header, &main, &side, &footer);
 
-    int top_base = 2;
-    int usable_h = rows - top_base - 2;
-    int usable_w = cols;
+    ui_pos_draw_box(main, "테이블 현황");
+    if (side.w > 0) {
+        ui_pos_draw_box(side, "선택 테이블 / 요약");
+    }
+
+    int usable_h = main.h - 2;
+    int usable_w = main.w - 2;
     if (usable_h < 4 || usable_w < 10) {
-        mvprintw(2, 0, "터미널 크기를 키워 주세요.");
+        ui_pos_print_in(main, 0, 0, A_BOLD, "터미널 크기를 키워 주세요.");
         return;
     }
 
-    int cell_w = usable_w / layout->grid_cols;
-    int cell_h = usable_h / layout->grid_rows;
-    if (cell_w < 8) {
-        cell_w = 8;
+    
+    const int min_cell_w = 12;
+    const int min_cell_h = 6;
+
+    int view_cols = usable_w / min_cell_w;
+    int view_rows = usable_h / min_cell_h;
+    if (view_cols < 1) {
+        view_cols = 1;
     }
-    if (cell_h < 4) {
-        cell_h = 4;
+    if (view_rows < 1) {
+        view_rows = 1;
+    }
+    if (view_cols > layout->grid_cols) {
+        view_cols = layout->grid_cols;
+    }
+    if (view_rows > layout->grid_rows) {
+        view_rows = layout->grid_rows;
+    }
+
+    int cell_w = usable_w / view_cols;
+    int cell_h = usable_h / view_rows;
+
+    int view_c0 = cur_col - view_cols / 2;
+    int view_r0 = cur_row - view_rows / 2;
+    if (view_c0 < 0) {
+        view_c0 = 0;
+    }
+    if (view_r0 < 0) {
+        view_r0 = 0;
+    }
+    if (view_c0 + view_cols > layout->grid_cols) {
+        view_c0 = layout->grid_cols - view_cols;
+        if (view_c0 < 0) {
+            view_c0 = 0;
+        }
+    }
+    if (view_r0 + view_rows > layout->grid_rows) {
+        view_r0 = layout->grid_rows - view_rows;
+        if (view_r0 < 0) {
+            view_r0 = 0;
+        }
     }
 
     for (int i = 0; i < layout->count; ++i) {
@@ -736,9 +992,16 @@ static void ui_draw_pos_home(ServerContext *ctx, const StoreLayout *layout,
         if (!tp->active) {
             continue;
         }
-        int left = tp->col * cell_w;
-        int top = top_base + tp->row * cell_h;
-        if (left + cell_w > cols || top + cell_h > rows - 1) {
+        if (tp->col < view_c0 || tp->col >= view_c0 + view_cols ||
+            tp->row < view_r0 || tp->row >= view_r0 + view_rows) {
+            continue;
+        }
+        int rel_c = tp->col - view_c0;
+        int rel_r = tp->row - view_r0;
+        int left = main.left + 1 + rel_c * cell_w;
+        int top = main.top + 1 + rel_r * cell_h;
+        if (left + cell_w > main.left + main.w - 1 ||
+            top + cell_h > main.top + main.h - 1) {
             continue;
         }
         PosTableSummary sum;
@@ -748,60 +1011,132 @@ static void ui_draw_pos_home(ServerContext *ctx, const StoreLayout *layout,
         ui_pos_draw_table_box(top, left, cell_h, cell_w, tp, &sum, sel, staff);
     }
 
-    pthread_mutex_lock(&ctx->lock);
-    if (ctx->last_staff_message[0] != '\0') {
-        mvprintw(rows - 3, 0, "[직원호출] %s", ctx->last_staff_message);
-    }
-    pthread_mutex_unlock(&ctx->lock);
+    if (side.w > 0) {
+        TablePlacement *tp =
+            layout_find_at((StoreLayout *)layout, cur_row, cur_col);
+        if (!tp) {
+            ui_pos_print_in(side, 0, 0, A_DIM, "커서: (%d,%d)", cur_row, cur_col);
+            ui_pos_print_in(side, 1, 0, A_BOLD, "빈 칸");
+        } else {
+            PosTableSummary sum;
+            ui_pos_table_summary(ctx, tp->table_id, &sum);
+            int staff = ui_pos_staff_active(ctx, tp->table_id);
+            ui_pos_print_in(side, 0, 0, A_BOLD, "%s", tp->label);
+            ui_pos_print_in(side, 1, 0, A_DIM, "Table ID: %d  Zone: %s",
+                            tp->table_id,
+                            tp->zone == TABLE_ZONE_INSIDE ? "안" : "밖");
+            ui_pos_print_in(side, 3, 0, A_NORMAL, "주문: %d건", sum.order_count);
+            ui_pos_print_in(side, 4, 0, A_NORMAL, "미결제: ₩%d", sum.unpaid_total);
+            ui_pos_print_in(side, 5, 0, A_NORMAL, "DONE: ₩%d", sum.done_total);
+            if (staff) {
+                ui_pos_print_in(side, 7, 0,
+                                A_BOLD | COLOR_PAIR(POS_COLOR_STAFF),
+                                "직원 호출: 활성");
+            } else {
+                ui_pos_print_in(side, 7, 0, A_DIM, "직원 호출: 없음");
+            }
+            ui_pos_draw_button_in(side, 10, POS_COLOR_ACTIVE, "ENTER  결제하기");
+            ui_pos_draw_button_in(side, 13, POS_COLOR_STAFF, "C  직원호출 해제");
+        }
 
-    mvprintw(rows - 1, 0,
-             "F1배치 F2결제 F3메뉴 F4매출 F5배치관리 | 방향키 이동 Enter결제 q종료");
+        pthread_mutex_lock(&ctx->lock);
+        if (ctx->last_staff_message[0] != '\0') {
+            ui_pos_print_in(side, side.h - 4, 0, A_BOLD, "최근 호출");
+            ui_pos_print_in(side, side.h - 3, 0, A_NORMAL, "%s",
+                            ctx->last_staff_message);
+        }
+        pthread_mutex_unlock(&ctx->lock);
+    }
+
+    move(footer.top, 0);
+    clrtoeol();
+    mvprintw(footer.top, 1,
+             "방향키 이동 · Enter 결제 · q 종료");
+    move(footer.top + 1, 0);
+    clrtoeol();
+    mvprintw(footer.top + 1, 1,
+             "표시: %s(밖) / %s(안) / %s(주문있음) / %s(직원호출)",
+             "CYAN", "YELLOW", "GREEN", "RED");
 }
 
 static void ui_draw_pos_payment(ServerContext *ctx, int rows, int cols,
                                 int pay_table, int sel) {
-    (void)cols;
     clear();
-    mvprintw(0, 0, "결제하기 | 테이블 번호 입력 후 주문 확인 (t:번호변경)");
-    mvprintw(1, 0, "대상 테이블: %s",
-             pay_table > 0 ? "" : "(미지정)");
+    UiRect header, main, side, footer;
+    ui_pos_layout_frame(rows, cols, POS_TAB_PAYMENT, &header, &main, &side, &footer);
+    ui_pos_draw_box(main, "주문 목록");
+    if (side.w > 0) {
+        ui_pos_draw_box(side, "결제 요약");
+    }
+
+    char tlabel[48];
+    tlabel[0] = '\0';
     if (pay_table > 0) {
-        TablePlacement *tp = NULL;
         StoreLayout tmp;
         layout_init(&tmp);
         char err[64];
-        layout_load(LAYOUT_PATH, &tmp, err, sizeof(err));
-        tp = layout_find_by_id(&tmp, pay_table);
-        mvprintw(1, 14, "%d %s", pay_table, tp ? tp->label : "");
+        if (layout_load(LAYOUT_PATH, &tmp, err, sizeof(err)) == 0) {
+            TablePlacement *tp = layout_find_by_id(&tmp, pay_table);
+            if (tp) {
+                snprintf(tlabel, sizeof(tlabel), "%s", tp->label);
+            }
+        }
     }
 
-    PosTableSummary sum;
-    if (pay_table > 0) {
-        ui_pos_table_summary(ctx, pay_table, &sum);
-        mvprintw(2, 0, "미결제 합계: ₩%d | 결제가능(DONE): ₩%d", sum.unpaid_total,
-                 sum.done_total);
+    if (side.w > 0) {
+        ui_pos_print_in(side, 0, 0, A_NORMAL, "대상 테이블");
+        if (pay_table > 0) {
+            ui_pos_print_in(side, 1, 0, A_BOLD, "T%02d %s", pay_table, tlabel);
+        } else {
+            ui_pos_print_in(side, 1, 0, A_DIM, "(미지정)  t 로 설정");
+        }
+        PosTableSummary sum;
+        if (pay_table > 0) {
+            ui_pos_table_summary(ctx, pay_table, &sum);
+            ui_pos_print_in(side, 3, 0, A_NORMAL, "미결제 합계");
+            ui_pos_print_in(side, 4, 0, A_BOLD, "₩%d", sum.unpaid_total);
+            ui_pos_print_in(side, 6, 0, A_NORMAL, "결제가능(DONE)");
+            ui_pos_print_in(side, 7, 0, A_BOLD, "₩%d", sum.done_total);
+        }
+        ui_pos_print_in(side, side.h - 5, 0, A_DIM, "Enter: 선택 주문 결제(DONE)");
+        ui_pos_print_in(side, side.h - 4, 0, A_DIM, "y: 해당 테이블 DONE 전체 결제");
+        ui_pos_print_in(side, side.h - 3, 0, A_DIM, "t: 테이블 변경");
     }
 
+    int line = 0;
+    ui_pos_print_in(main, line++, 0, A_DIM,
+                    "필터: %s", pay_table > 0 ? "선택 테이블" : "전체");
+    line++;
     pthread_mutex_lock(&ctx->lock);
     int shown = 0;
-    for (int i = 0; i < ctx->order_count && shown < rows - 8; ++i) {
+    int max_rows = main.h - 3 - line;
+    for (int i = 0; i < ctx->order_count && shown < max_rows; ++i) {
         Order *o = &ctx->orders[i];
         if (pay_table > 0 && o->table_id != pay_table) {
             continue;
         }
-        attrset(shown == sel ? A_REVERSE : A_NORMAL);
-        mvprintw(4 + shown, 0, "#%04d T%02d %-8s ₩%-7d", o->order_id,
-                 o->table_id, status_to_string(o->status), o->total_price);
+        attr_t a = (shown == sel ? A_REVERSE : A_NORMAL);
+        char first[40] = "";
         if (o->item_count > 0) {
-            printw(" | %s x%d", o->items[0].name, o->items[0].qty);
+            snprintf(first, sizeof(first), "%.*s x%d",
+                     (int)sizeof(first) - 6, o->items[0].name,
+                     o->items[0].qty);
         }
-        attrset(A_NORMAL);
+        ui_pos_print_in(main, line + shown, 0, a,
+                        "#%04d  T%02d  %-8s  ₩%-7d  %s",
+                        o->order_id, o->table_id, status_to_string(o->status),
+                        o->total_price, first);
         shown++;
     }
     pthread_mutex_unlock(&ctx->lock);
 
-    mvprintw(rows - 3, 0, "Enter: DONE 주문 결제 | y: 해당 테이블 DONE 전체 결제");
-    mvprintw(rows - 2, 0, "t 테이블번호 변경");
+    move(footer.top, 0);
+    clrtoeol();
+    mvprintw(footer.top, 1,
+             "↑↓ 선택 · Enter 결제 · y 전체결제 · t 테이블변경 · q 종료");
+    move(footer.top + 1, 0);
+    clrtoeol();
+    mvprintw(footer.top + 1, 1, "팁: DONE 상태만 결제 가능합니다.");
 }
 
 static int ui_pos_collect_table_done_ids(ServerContext *ctx, int table_id,
@@ -834,24 +1169,67 @@ static int ui_pos_collect_table_order_indices(ServerContext *ctx, int table_id,
 
 static void ui_draw_pos_menu_admin(ServerContext *ctx, int rows, int cols,
                                    int sel) {
-    (void)cols;
     clear();
-    mvprintw(0, 0, "메뉴 관리 | a추가 e수정 d삭제 s품절 | F1배치 F2결제 F4매출");
+    UiRect header, main, side, footer;
+    ui_pos_layout_frame(rows, cols, POS_TAB_MENU, &header, &main, &side, &footer);
+    ui_pos_draw_box(main, "메뉴 목록");
+    if (side.w > 0) {
+        ui_pos_draw_box(side, "선택 항목");
+    }
+
     pthread_mutex_lock(&ctx->lock);
-    for (int i = 0; i < ctx->menu.count && i + 3 < rows - 3; ++i) {
+    int mc = ctx->menu.count;
+    int base = 0;
+    ui_pos_print_in(main, base++, 0, A_DIM, "a 추가 · e 수정 · d 삭제 · s 품절 토글");
+    base++;
+    int shown = 0;
+    int max_rows = main.h - 3 - base;
+    for (int i = 0; i < mc && shown < max_rows; ++i) {
         MenuItem *m = &ctx->menu.items[i];
-        attrset(i == sel ? A_REVERSE : A_NORMAL);
-        mvprintw(3 + i, 0, "%3d %-28s ₩%-6d %s", m->id, m->name, m->price,
-                 m->sold_out ? "[품절]" : "");
-        attrset(A_NORMAL);
+        attr_t a = (i == sel ? A_REVERSE : A_NORMAL);
+        ui_pos_print_in(main, base + shown, 0, a, "%3d  %-28s  ₩%-6d  %s",
+                        m->id, m->name, m->price, m->sold_out ? "[품절]" : "");
+        shown++;
+    }
+
+    if (side.w > 0) {
+        if (mc <= 0) {
+            ui_pos_print_in(side, 0, 0, A_DIM, "메뉴가 없습니다.");
+        } else {
+            if (sel < 0) {
+                sel = 0;
+            }
+            if (sel >= mc) {
+                sel = mc - 1;
+            }
+            MenuItem *m = &ctx->menu.items[sel];
+            ui_pos_print_in(side, 0, 0, A_BOLD, "%s", m->name);
+            ui_pos_print_in(side, 1, 0, A_DIM, "ID: %d", m->id);
+            ui_pos_print_in(side, 3, 0, A_NORMAL, "가격");
+            ui_pos_print_in(side, 4, 0, A_BOLD, "₩%d", m->price);
+            ui_pos_print_in(side, 6, 0, A_NORMAL, "상태");
+            ui_pos_print_in(side, 7, 0,
+                            m->sold_out
+                                ? (A_BOLD | COLOR_PAIR(POS_COLOR_STAFF))
+                                : (A_BOLD | COLOR_PAIR(POS_COLOR_ACTIVE)),
+                            "%s", m->sold_out ? "품절" : "판매중");
+        }
+        ui_pos_print_in(side, side.h - 3, 0, A_DIM, "↑↓ 선택 · q 종료");
     }
     pthread_mutex_unlock(&ctx->lock);
+
+    move(footer.top, 0);
+    clrtoeol();
+    mvprintw(footer.top, 1,
+             "↑↓ 선택 · a 추가 · e 수정 · d 삭제 · s 품절 · q 종료");
+    move(footer.top + 1, 0);
+    clrtoeol();
+    mvprintw(footer.top + 1, 1, "주의: 변경사항은 즉시 서버 메뉴에 반영됩니다.");
 }
 
 #define POS_WGETCH_TIMEOUT_MS 200
 
-/* POS 메인 루프는 timeout(200)으로 폴링한다. wgetnstr도 동일 timeout을
- * 상속해 입력 없이 즉시 반환되므로, 프롬프트 동안만 블로킹으로 전환한다. */
+
 static void ui_pos_prompt_begin(void) {
     timeout(-1);
     nodelay(stdscr, FALSE);
@@ -912,38 +1290,81 @@ static void ui_draw_pos_layout_editor(const StoreLayout *layout, int cur_row,
                                     int cur_col, int edit_sel, int rows,
                                     int cols) {
     clear();
-    mvprintw(0, 0, "테이블 배치 관리 | 그리드 %dx%d | 테이블 %d개",
-             layout->grid_cols, layout->grid_rows,
-             ui_layout_active_count(layout));
-    mvprintw(1, 0,
-             "g그리드 a추가 d삭제 m이동 z구역 l라벨 s저장 | 방향키 커서 Enter선택");
-
-    int top_base = 3;
-    int usable_h = rows - top_base - 2;
-    int usable_w = cols;
-    int cell_w = usable_w / layout->grid_cols;
-    int cell_h = usable_h / layout->grid_rows;
-    if (cell_w < 8) {
-        cell_w = 8;
-    }
-    if (cell_h < 4) {
-        cell_h = 4;
+    UiRect header, main, side, footer;
+    ui_pos_layout_frame(rows, cols, POS_TAB_LAYOUT, &header, &main, &side, &footer);
+    ui_pos_draw_box(main, "배치 편집");
+    if (side.w > 0) {
+        ui_pos_draw_box(side, "도움말 / 선택");
     }
 
-    for (int r = 0; r < layout->grid_rows; ++r) {
-        for (int c = 0; c < layout->grid_cols; ++c) {
-            int left = c * cell_w;
-            int top = top_base + r * cell_h;
-            TablePlacement *tp = layout_find_at((StoreLayout *)layout, r, c);
+    int usable_h = main.h - 2;
+    int usable_w = main.w - 2;
+    if (usable_h < 4 || usable_w < 10) {
+        ui_pos_print_in(main, 0, 0, A_BOLD, "터미널 크기를 키워 주세요.");
+        return;
+    }
+
+    
+    const int min_cell_w = 12;
+    const int min_cell_h = 6;
+
+    int view_cols = usable_w / min_cell_w;
+    int view_rows = usable_h / min_cell_h;
+    if (view_cols < 1) {
+        view_cols = 1;
+    }
+    if (view_rows < 1) {
+        view_rows = 1;
+    }
+    if (view_cols > layout->grid_cols) {
+        view_cols = layout->grid_cols;
+    }
+    if (view_rows > layout->grid_rows) {
+        view_rows = layout->grid_rows;
+    }
+
+    int cell_w = usable_w / view_cols;
+    int cell_h = usable_h / view_rows;
+
+    int view_c0 = cur_col - view_cols / 2;
+    int view_r0 = cur_row - view_rows / 2;
+    if (view_c0 < 0) {
+        view_c0 = 0;
+    }
+    if (view_r0 < 0) {
+        view_r0 = 0;
+    }
+    if (view_c0 + view_cols > layout->grid_cols) {
+        view_c0 = layout->grid_cols - view_cols;
+        if (view_c0 < 0) {
+            view_c0 = 0;
+        }
+    }
+    if (view_r0 + view_rows > layout->grid_rows) {
+        view_r0 = layout->grid_rows - view_rows;
+        if (view_r0 < 0) {
+            view_r0 = 0;
+        }
+    }
+
+    for (int vr = 0; vr < view_rows; ++vr) {
+        for (int vc = 0; vc < view_cols; ++vc) {
+            int gr = view_r0 + vr;
+            int gc = view_c0 + vc;
+            int left = main.left + 1 + vc * cell_w;
+            int top = main.top + 1 + vr * cell_h;
+            TablePlacement *tp = layout_find_at((StoreLayout *)layout, gr, gc);
             if (tp) {
                 PosTableSummary dummy;
                 memset(&dummy, 0, sizeof(dummy));
-                int sel = (r == cur_row && c == cur_col);
+                int sel = (gr == cur_row && gc == cur_col);
                 ui_pos_draw_table_box(top, left, cell_h, cell_w, tp, &dummy,
                                       sel, 0);
-            } else if (r == cur_row && c == cur_col) {
+            } else if (gr == cur_row && gc == cur_col) {
                 attrset(A_REVERSE);
-                for (int y = 0; y < cell_h && top + y < rows - 1; ++y) {
+                for (int y = 0;
+                     y < cell_h && top + y < main.top + main.h - 1;
+                     ++y) {
                     mvprintw(top + y, left, "%-*s", cell_w, "");
                 }
                 attrset(A_NORMAL);
@@ -951,14 +1372,57 @@ static void ui_draw_pos_layout_editor(const StoreLayout *layout, int cur_row,
         }
     }
 
-    if (edit_sel >= 0 && edit_sel < layout->count) {
-        const TablePlacement *tp = &layout->tables[edit_sel];
-        mvprintw(rows - 2, 0,
-                 "선택: id=%d %s zone=%s (%d,%d)", tp->table_id, tp->label,
-                 tp->zone == TABLE_ZONE_INSIDE ? "안" : "밖", tp->row, tp->col);
-    } else {
-        mvprintw(rows - 2, 0, "커서 (%d,%d) — 빈 칸", cur_row, cur_col);
+    if (side.w > 0) {
+        ui_pos_print_in(side, 0, 0, A_BOLD, "최대 테이블 배치 수");
+        ui_pos_print_in(side, 1, 0, A_NORMAL, "행 x 열: %d x %d",
+                        layout->grid_rows, layout->grid_cols);
+        ui_pos_print_in(side, 2, 0, A_DIM, "활성 테이블: %d",
+                        ui_layout_active_count(layout));
+
+        ui_pos_print_in(side, 4, 0, A_BOLD, "단축키");
+        ui_pos_print_in(side, 5, 0, A_DIM, "↑↓←→  이동");
+        ui_pos_print_in(side, 6, 0, A_DIM, "Enter  선택");
+        ui_pos_print_in(side, 7, 0, A_DIM, "a      추가");
+        ui_pos_print_in(side, 8, 0, A_DIM, "d      삭제");
+        ui_pos_print_in(side, 9, 0, A_DIM, "z      구역 변경");
+        ui_pos_print_in(side, 10, 0, A_DIM, "l      테이블 이름");
+        ui_pos_print_in(side, 11, 0, A_DIM, "m      이동모드");
+        ui_pos_print_in(side, 12, 0, A_DIM, "g      최대 배치 사이즈 수정");
+        ui_pos_print_in(side, 13, 0, A_DIM, "s      저장");
+
+        ui_pos_print_in(side, 15, 0, A_BOLD, "커서");
+        ui_pos_print_in(side, 16, 0, A_NORMAL, "(%d,%d)", cur_row, cur_col);
+
+        if (edit_sel >= 0 && edit_sel < layout->count) {
+            const TablePlacement *tp = &layout->tables[edit_sel];
+            ui_pos_print_in(side, 18, 0, A_BOLD, "선택됨");
+            ui_pos_print_in(side, 19, 0, A_NORMAL, "id=%d  %s", tp->table_id,
+                            tp->label);
+            ui_pos_print_in(side, 20, 0, A_DIM, "zone=%s  (%d,%d)",
+                            tp->zone == TABLE_ZONE_INSIDE ? "안" : "밖", tp->row,
+                            tp->col);
+        } else {
+            TablePlacement *tp = layout_find_at((StoreLayout *)layout, cur_row, cur_col);
+            if (tp) {
+                ui_pos_print_in(side, 18, 0, A_BOLD, "커서 위치");
+                ui_pos_print_in(side, 19, 0, A_NORMAL, "id=%d  %s", tp->table_id,
+                                tp->label);
+                ui_pos_print_in(side, 20, 0, A_DIM, "zone=%s  (%d,%d)",
+                                tp->zone == TABLE_ZONE_INSIDE ? "안" : "밖", tp->row,
+                                tp->col);
+            } else {
+                ui_pos_print_in(side, 18, 0, A_DIM, "빈 칸");
+            }
+        }
     }
+
+    move(footer.top, 0);
+    clrtoeol();
+    mvprintw(footer.top, 1,
+             "배치편집: a 추가 · d 삭제 · z 구역 · l 테이블이름 · m 이동 · g 배치사이즈 · s 저장 · q 종료");
+    move(footer.top + 1, 0);
+    clrtoeol();
+    mvprintw(footer.top + 1, 1, "팁: 이동모드(m)에서 Enter로 빈 칸에 배치합니다.");
 }
 
 static void ui_pos_sync_max_tables(ServerContext *ctx, const StoreLayout *layout) {
@@ -994,7 +1458,7 @@ static int ui_layout_active_count(const StoreLayout *layout) {
     return n;
 }
 
-/* 삭제 시 active=0만 두면 count가 줄지 않아 계속 증가하는 문제 방지 */
+
 static void ui_pos_layout_compact(StoreLayout *layout) {
     int w = 0;
     for (int i = 0; i < layout->count; ++i) {
@@ -1033,25 +1497,46 @@ static int ui_pos_layout_alloc_slot(StoreLayout *layout) {
 
 static void ui_draw_pos_sales(int rows, int cols) {
     clear();
-    mvprintw(0, 0, "매출 로그 tail (%s)", SALES_LOG_PATH);
+    UiRect header, main, side, footer;
+    ui_pos_layout_frame(rows, cols, POS_TAB_SALES, &header, &main, &side, &footer);
+    ui_pos_draw_box(main, "매출 로그 (tail)");
+    if (side.w > 0) {
+        ui_pos_draw_box(side, "정보");
+    }
+
     char chunk[16000];
     char err[128];
     ssize_t n =
         storage_read_tail(SALES_LOG_PATH, chunk, sizeof(chunk), err, sizeof(err));
     if (n < 0) {
-        mvprintw(3, 0, "(로그 없음 또는 읽기 실패)");
-        return;
+        ui_pos_print_in(main, 0, 0, A_DIM, "(로그 없음 또는 읽기 실패)");
+    } else {
+        int line = 0;
+        char *save = NULL;
+        char bufcopy[sizeof(chunk)];
+        strncpy(bufcopy, chunk, sizeof(bufcopy) - 1);
+        bufcopy[sizeof(bufcopy) - 1] = '\0';
+        char *ln = strtok_r(bufcopy, "\n", &save);
+        while (ln && line < main.h - 3) {
+            ui_pos_print_in(main, line, 0, A_NORMAL, "%s", ln);
+            line++;
+            ln = strtok_r(NULL, "\n", &save);
+        }
     }
-    int line = 2;
-    char *save = NULL;
-    char bufcopy[sizeof(chunk)];
-    strncpy(bufcopy, chunk, sizeof(bufcopy) - 1);
-    bufcopy[sizeof(bufcopy) - 1] = '\0';
-    char *ln = strtok_r(bufcopy, "\n", &save);
-    while (ln && line < rows - 2) {
-        mvprintw(line++, 0, "%.*s", cols - 1, ln);
-        ln = strtok_r(NULL, "\n", &save);
+
+    if (side.w > 0) {
+        ui_pos_print_in(side, 0, 0, A_DIM, "파일");
+        ui_pos_print_in(side, 1, 0, A_BOLD, "%s", SALES_LOG_PATH);
+        ui_pos_print_in(side, 3, 0, A_DIM, "새로고침");
+        ui_pos_print_in(side, 4, 0, A_NORMAL, "자동(200ms) 갱신");
     }
+
+    move(footer.top, 0);
+    clrtoeol();
+    mvprintw(footer.top, 1, "q 종료 · F1~F5 탭 이동");
+    move(footer.top + 1, 0);
+    clrtoeol();
+    mvprintw(footer.top + 1, 1, "팁: 로그가 너무 길면 화면 크기를 키워주세요.");
 }
 
 void ui_run_pos(ServerContext *ctx) {
@@ -1085,6 +1570,8 @@ void ui_run_pos(ServerContext *ctx) {
     int layout_edit_idx = -1;
     int layout_move_mode = 0;
     uint32_t last_rev = 0;
+    int dirty = 1;
+    time_t last_auto_redraw = 0;
 
     while (!ctx->shutting_down) {
         int rows = 0, cols = 0;
@@ -1092,25 +1579,39 @@ void ui_run_pos(ServerContext *ctx) {
         if ((uint32_t)ctx->orders_revision != last_rev) {
             last_rev = (uint32_t)ctx->orders_revision;
             sel_payment = 0;
+            dirty = 1;
         }
 
-        switch (tab) {
-        case POS_TAB_HOME:
-            ui_draw_pos_home(ctx, &layout, grid_row, grid_col, rows, cols);
-            break;
-        case POS_TAB_PAYMENT:
-            ui_draw_pos_payment(ctx, rows, cols, pay_table, sel_payment);
-            break;
-        case POS_TAB_MENU:
-            ui_draw_pos_menu_admin(ctx, rows, cols, sel_menu);
-            break;
-        case POS_TAB_SALES:
-            ui_draw_pos_sales(rows, cols);
-            break;
-        case POS_TAB_LAYOUT:
-            ui_draw_pos_layout_editor(&layout, grid_row, grid_col,
-                                      layout_edit_idx, rows, cols);
-            break;
+        
+        if (!dirty && tab == POS_TAB_SALES) {
+            time_t now = time(NULL);
+            if (now != last_auto_redraw) { 
+                last_auto_redraw = now;
+                dirty = 1;
+            }
+        }
+
+        if (dirty) {
+            switch (tab) {
+            case POS_TAB_HOME:
+                ui_draw_pos_home(ctx, &layout, grid_row, grid_col, rows, cols);
+                break;
+            case POS_TAB_PAYMENT:
+                ui_draw_pos_payment(ctx, rows, cols, pay_table, sel_payment);
+                break;
+            case POS_TAB_MENU:
+                ui_draw_pos_menu_admin(ctx, rows, cols, sel_menu);
+                break;
+            case POS_TAB_SALES:
+                ui_draw_pos_sales(rows, cols);
+                break;
+            case POS_TAB_LAYOUT:
+                ui_draw_pos_layout_editor(&layout, grid_row, grid_col,
+                                          layout_edit_idx, rows, cols);
+                break;
+            }
+            refresh();
+            dirty = 0;
         }
 
         int ch = wgetch(stdscr);
@@ -1123,32 +1624,41 @@ void ui_run_pos(ServerContext *ctx) {
         }
         if (ch == KEY_F(1)) {
             tab = POS_TAB_HOME;
+            dirty = 1;
         }
         if (ch == KEY_F(2)) {
             tab = POS_TAB_PAYMENT;
+            dirty = 1;
         }
         if (ch == KEY_F(3)) {
             tab = POS_TAB_MENU;
+            dirty = 1;
         }
         if (ch == KEY_F(4)) {
             tab = POS_TAB_SALES;
+            dirty = 1;
         }
         if (ch == KEY_F(5)) {
             tab = POS_TAB_LAYOUT;
+            dirty = 1;
         }
 
         if (tab == POS_TAB_HOME) {
             if (ch == KEY_UP && grid_row > 0) {
                 grid_row--;
+                dirty = 1;
             }
             if (ch == KEY_DOWN && grid_row + 1 < layout.grid_rows) {
                 grid_row++;
+                dirty = 1;
             }
             if (ch == KEY_LEFT && grid_col > 0) {
                 grid_col--;
+                dirty = 1;
             }
             if (ch == KEY_RIGHT && grid_col + 1 < layout.grid_cols) {
                 grid_col++;
+                dirty = 1;
             }
             TablePlacement *tp =
                 layout_find_at(&layout, grid_row, grid_col);
@@ -1156,6 +1666,7 @@ void ui_run_pos(ServerContext *ctx) {
                 pay_table = tp->table_id;
                 tab = POS_TAB_PAYMENT;
                 sel_payment = 0;
+                dirty = 1;
             }
             if (ch == 'c' && tp) {
                 char err[160];
@@ -1165,6 +1676,7 @@ void ui_run_pos(ServerContext *ctx) {
                 }
                 pthread_mutex_unlock(&ctx->lock);
                 (void)err;
+                dirty = 1;
             }
         }
 
@@ -1179,13 +1691,16 @@ void ui_run_pos(ServerContext *ctx) {
                 if (nt > 0 && nt <= MAX_TABLES) {
                     pay_table = nt;
                     sel_payment = 0;
+                    dirty = 1;
                 }
             }
             if (ch == KEY_UP) {
                 sel_payment = (sel_payment + nshow - 1) % (nshow ? nshow : 1);
+                dirty = 1;
             }
             if (ch == KEY_DOWN) {
                 sel_payment = (sel_payment + 1) % (nshow ? nshow : 1);
+                dirty = 1;
             }
             if (ch == '\n' || ch == KEY_ENTER) {
                 if (sel_payment < nshow) {
@@ -1198,6 +1713,7 @@ void ui_run_pos(ServerContext *ctx) {
                     if (st == STATUS_DONE) {
                         char err[160];
                         server_pay_order(ctx, oid, err, sizeof(err));
+                        dirty = 1;
                     }
                 }
             }
@@ -1209,6 +1725,9 @@ void ui_run_pos(ServerContext *ctx) {
                     char err[160];
                     server_pay_order(ctx, ids[i], err, sizeof(err));
                 }
+                if (nids > 0) {
+                    dirty = 1;
+                }
             }
         }
 
@@ -1218,9 +1737,11 @@ void ui_run_pos(ServerContext *ctx) {
             pthread_mutex_unlock(&ctx->lock);
             if (ch == KEY_UP) {
                 sel_menu = (sel_menu + mc - 1) % (mc ? mc : 1);
+                dirty = 1;
             }
             if (ch == KEY_DOWN) {
                 sel_menu = (sel_menu + 1) % (mc ? mc : 1);
+                dirty = 1;
             }
             if ((ch == 's' || ch == 'S') && mc > 0) {
                 char err[160];
@@ -1235,6 +1756,7 @@ void ui_run_pos(ServerContext *ctx) {
                 pthread_mutex_lock(&ctx->lock);
                 menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
                 pthread_mutex_unlock(&ctx->lock);
+                dirty = 1;
             }
             if (ch == 'd' && mc > 0) {
                 pthread_mutex_lock(&ctx->lock);
@@ -1249,6 +1771,7 @@ void ui_run_pos(ServerContext *ctx) {
                 pthread_mutex_unlock(&ctx->lock);
                 server_broadcast_line(ctx, "MENU_SYNC\n");
                 sel_menu = 0;
+                dirty = 1;
             }
             if (ch == 'a') {
                 MenuItem mi;
@@ -1267,6 +1790,7 @@ void ui_run_pos(ServerContext *ctx) {
                 menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
                 pthread_mutex_unlock(&ctx->lock);
                 server_broadcast_line(ctx, "MENU_SYNC\n");
+                dirty = 1;
             }
             if (ch == 'e' && mc > 0) {
                 pthread_mutex_lock(&ctx->lock);
@@ -1289,29 +1813,34 @@ void ui_run_pos(ServerContext *ctx) {
                 menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
                 pthread_mutex_unlock(&ctx->lock);
                 server_broadcast_line(ctx, "MENU_SYNC\n");
+                dirty = 1;
             }
         }
 
         if (tab == POS_TAB_LAYOUT) {
             if (ch == KEY_UP && grid_row > 0) {
                 grid_row--;
+                dirty = 1;
             }
             if (ch == KEY_DOWN && grid_row + 1 < layout.grid_rows) {
                 grid_row++;
+                dirty = 1;
             }
             if (ch == KEY_LEFT && grid_col > 0) {
                 grid_col--;
+                dirty = 1;
             }
             if (ch == KEY_RIGHT && grid_col + 1 < layout.grid_cols) {
                 grid_col++;
+                dirty = 1;
             }
             layout_edit_idx = ui_pos_layout_find_index(&layout, grid_row,
                                                      grid_col);
 
             if (ch == 'g') {
                 int nr = 0, nc = 0;
-                ui_prompt_int(stdscr, rows - 6, "그리드 행(rows): ", &nr);
-                ui_prompt_int(stdscr, rows - 5, "그리드 열(cols): ", &nc);
+                ui_prompt_int(stdscr, rows - 6, "최대 배치 행(rows): ", &nr);
+                ui_prompt_int(stdscr, rows - 5, "최대 배치 열(cols): ", &nc);
                 if (nr > 0 && nr <= MAX_GRID_ROWS && nc > 0 &&
                     nc <= MAX_GRID_COLS) {
                     layout.grid_rows = nr;
@@ -1322,6 +1851,7 @@ void ui_run_pos(ServerContext *ctx) {
                     if (grid_col >= nc) {
                         grid_col = nc - 1;
                     }
+                    dirty = 1;
                 }
             }
 
@@ -1344,32 +1874,37 @@ void ui_run_pos(ServerContext *ctx) {
                 snprintf(tp->label, sizeof(tp->label), "T%d", new_id);
                 layout_edit_idx = slot;
                 ui_pos_sync_max_tables(ctx, &layout);
+                dirty = 1;
             }
 
             if (ch == 'd' && layout_edit_idx >= 0) {
                 ui_pos_layout_remove_at(&layout, layout_edit_idx);
                 layout_edit_idx = -1;
+                dirty = 1;
             }
 
             if (ch == 'z' && layout_edit_idx >= 0) {
                 TablePlacement *tp = &layout.tables[layout_edit_idx];
                 tp->zone = tp->zone == TABLE_ZONE_INSIDE ? TABLE_ZONE_OUTSIDE
                                                        : TABLE_ZONE_INSIDE;
+                dirty = 1;
             }
 
             if (ch == 'l' && layout_edit_idx >= 0) {
                 char lb[MAX_TABLE_LABEL];
                 lb[0] = '\0';
-                ui_prompt_string(stdscr, rows - 5, "테이블 라벨: ", lb,
+                ui_prompt_string(stdscr, rows - 5, "테이블 이름: ", lb,
                                  sizeof(lb), 0);
                 if (lb[0]) {
                     snprintf(layout.tables[layout_edit_idx].label,
                              MAX_TABLE_LABEL, "%s", lb);
                 }
+                dirty = 1;
             }
 
             if (ch == 'm' && layout_edit_idx >= 0) {
                 layout_move_mode = !layout_move_mode;
+                dirty = 1;
             }
 
             if (layout_move_mode && layout_edit_idx >= 0 &&
@@ -1379,6 +1914,7 @@ void ui_run_pos(ServerContext *ctx) {
                     layout.tables[layout_edit_idx].col = grid_col;
                 }
                 layout_move_mode = 0;
+                dirty = 1;
             }
 
             if (ch == 's') {
@@ -1387,6 +1923,7 @@ void ui_run_pos(ServerContext *ctx) {
                 if (layout_save(LAYOUT_PATH, &layout, err, sizeof(err)) == 0) {
                     server_save_config(ctx, err, sizeof(err));
                 }
+                dirty = 1;
             }
         }
     }
@@ -1514,10 +2051,11 @@ static int ui_find_selectable_from(const MenuCatalog *cat, int start, int step) 
     return -1;
 }
 
-static void ui_draw_table_header(int table_id, int cart_qty, int cols,
+static void ui_draw_table_header(const char *table_name, int table_id,
+                                 int cart_qty, int cols,
                                  const char *banner) {
     mvprintw(0, 0, "%-*s", cols - 1, "");
-    mvprintw(0, 2, "Table %d | 테이블 오더", table_id);
+    mvprintw(0, 2, "%s (Table %d) | 테이블 오더", table_name, table_id);
     mvprintw(0, cols - 18, "장바구니 %d개", cart_qty);
     mvhline(1, 0, ACS_HLINE, cols - 1);
 
@@ -1571,9 +2109,7 @@ static void ui_draw_confirm_popup(int rows, int cols, const Cart *cart) {
         y = 1;
     }
 
-    /*
-     * 팝업 영역을 먼저 비운다.
-     */
+    
     for (int r = 0; r < h; ++r) {
         mvprintw(y + r, x, "%*s", w, "");
     }
@@ -1609,14 +2145,16 @@ static void ui_draw_confirm_popup(int rows, int cols, const Cart *cart) {
 
 static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
                                const Cart *cart, int rows, int cols, int sel,
+                               const char *table_name,
                                int table_id, const char *banner,
                                TableFocus focus, int sidebar_sel,
                                int current_category) {
     int base = 3;
 
-    if (scr != TABLE_SCR_MENU) {
-        clear();
-        mvprintw(0, 0, "Table %d | 화면:%s | 장바구니 줄 %d", table_id,
+        if (scr != TABLE_SCR_MENU) {
+            clear();
+            mvprintw(0, 0, "%s (Table %d) | 화면:%s | 장바구니 줄 %d",
+                     table_name, table_id,
                  scr == TABLE_SCR_CART ? "장바구니"
                  : scr == TABLE_SCR_CONFIRM ? "확정"
                                            : "상태",
@@ -1667,7 +2205,8 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             clear();
         }
 
-        ui_draw_table_header(table_id, ui_cart_total_qty(cart), cols, banner);
+        ui_draw_table_header(table_name, table_id, ui_cart_total_qty(cart), cols,
+                             banner);
 
         ui_attr_on(CP_SIDEBAR);
         ui_draw_box(body_y, 0, sidebar_w, body_h);
@@ -1697,7 +2236,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         int order_y = body_y + body_h - 7;
         int call_y = body_y + body_h - 4;
         int notice_y = cart_y - 5;
-        int cart_qty = ui_cart_total_qty(cart);
+        (void)ui_cart_total_qty(cart);
 
         if (notice_y > body_y + 8) {
             if (table_call_popup_ticks > 0) {
@@ -1753,9 +2292,9 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             int y = grid_top + gr * (cell_h + cell_gap_y);
             int x = menu_x + 2 + gc * (cell_w + cell_gap_x);
             int inner_x = x + 1;
-            int inner_y = y + 1;
+            
             int inner_w = cell_w - 2;
-            int img_h = cell_h - 4;
+            
             int selected = (idx == sel && focus == TABLE_FOCUS_MENU);
 
             if (selected) {
@@ -1797,14 +2336,14 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             int price_y = y + cell_h - 2;
             int text_w = cell_w - 2;
 
-            /* 기존 글자 잔상 제거 */
+            
             mvprintw(name_y, text_x, "%-*s", text_w, "");
             mvprintw(price_y, text_x, "%-*s", text_w, "");
 
-            /* 메뉴 이름 */
+            
             mvprintw(name_y, text_x, "%-*.*s", text_w, text_w, m->name);
 
-            /* 가격 또는 품절 */
+            
             if (m->sold_out) {
                 attron(A_DIM);
             }
@@ -1885,6 +2424,8 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
                 ui_clear_rect(inner_y, inner_x, inner_w, img_h);
                 ui_draw_chafa_image(inner_y, inner_x, inner_w, img_h, m->id);
             }
+            
+            refresh();
         }
 
         last_menu_page = page;
@@ -1912,9 +2453,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             return;
         }
 
-        /*
-        * 장바구니가 비어 있는 경우
-        */
+        
         if (cart->count <= 0) {
             int msg_y = base + content_h / 2 - 2;
             const char *msg1 = "장바구니가 비어 있습니다";
@@ -1944,29 +2483,19 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             return;
         }
 
-        /*
-        * 왼쪽 주문 메뉴 목록 박스
-        */
+        
         ui_draw_simple_box(list_y, list_x, list_w, box_h);
         attron(A_BOLD);
         mvprintw(list_y, list_x + 2, " 주문 메뉴 ");
         attroff(A_BOLD);
 
-        /*
-        * 오른쪽 주문 요약 박스
-        */
+        
         ui_draw_simple_box(list_y, summary_x, summary_w, box_h);
         attron(A_BOLD);
         mvprintw(list_y, summary_x + 2, " 주문 요약 ");
         attroff(A_BOLD);
 
-        /*
-        * 장바구니 목록 출력
-        * 한 메뉴당 3줄 사용:
-        * 1) 메뉴명
-        * 2) 단가 x 수량 = 금액
-        * 3) 빈 줄
-        */
+        
         int item_y = list_y + 2;
         int max_visible = (box_h - 4) / 3;
 
@@ -1983,9 +2512,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             int line_total = ci->price * ci->qty;
             int selected = (idx == sel);
 
-            /*
-            * 이전 잔상 제거
-            */
+            
             mvprintw(y,     list_x + 2, "%-*s", list_w - 4, "");
             mvprintw(y + 1, list_x + 2, "%-*s", list_w - 4, "");
 
@@ -2007,9 +2534,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
 
             mvprintw(y + 1, list_x + 4, "%d원 x %d", ci->price, ci->qty);
 
-            /*
-            * 오른쪽 끝에 항목별 합계 표시
-            */
+            
             char total_buf[32];
             snprintf(total_buf, sizeof(total_buf), "%d원", line_total);
             mvprintw(y + 1,
@@ -2018,9 +2543,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
                     total_buf);
         }
 
-        /*
-        * 오른쪽 주문 요약
-        */
+        
         int total_qty = ui_cart_total_qty(cart);
         int total_price = cart_total(cart);
 
@@ -2042,9 +2565,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         }
         attroff(A_BOLD);
 
-        /*
-        * 주문하기 / 메뉴판 안내 버튼 느낌
-        */
+        
         int btn_w = summary_w - 6;
         int order_y = sy + 11;
         int menu_y = sy + 15;
@@ -2067,9 +2588,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             mvprintw(menu_y + 1, summary_x + 5, "m 메뉴판으로");
         }
 
-        /*
-        * 하단 안내문
-        */
+        
         if (has_colors()) {
             attron(COLOR_PAIR(CP_FOOTER));
         }
@@ -2180,9 +2699,7 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
 
         int selected = (order_no - 1 == sel);
 
-        /*
-         * 주문 하나당 카드처럼 출력
-         */
+        
         if (line + 5 >= box_y + box_h - 1) {
             mvprintw(line, box_x + 2, "... 더 많은 주문이 있습니다 ...");
             break;
@@ -2223,7 +2740,9 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
         for (int k = 0; k < o->item_count && k < 5; ++k) {
             char item_buf[80];
 
-            snprintf(item_buf, sizeof(item_buf), "%s x%d",
+            
+            snprintf(item_buf, sizeof(item_buf), "%.*s x%d",
+                     (int)sizeof(item_buf) - 6,
                      o->items[k].name, o->items[k].qty);
 
             if (item_x + (int)strlen(item_buf) + 2 >= box_x + box_w - 2) {
@@ -2294,6 +2813,19 @@ void ui_run_table(const TableUiArgs *args) {
     noecho();
     curs_set(0);
     timeout(150);
+
+    char table_name[64];
+    snprintf(table_name, sizeof(table_name), "T%d", args->table_id);
+    {
+        StoreLayout lay;
+        char lerr[128];
+        if (layout_load(LAYOUT_PATH, &lay, lerr, sizeof(lerr)) == 0) {
+            TablePlacement *tp = layout_find_by_id(&lay, args->table_id);
+            if (tp && tp->label[0]) {
+                snprintf(table_name, sizeof(table_name), "%s", tp->label);
+            }
+        }
+    }
 
     char err[160];
     int sock = ui_tcp_connect(args->host, args->port, err, sizeof(err));
@@ -2394,11 +2926,12 @@ void ui_run_table(const TableUiArgs *args) {
 
         if (scr != TABLE_SCR_STATUS) {
             ui_draw_table_menu(&cat, scr, &cart, rows, cols, sel,
+                               table_name,
                                args->table_id, banner, focus, sidebar_sel,
                                current_category);
         } else {
             clear();
-            mvprintw(0, 0, "Table %d 주문 상태", args->table_id);
+            mvprintw(0, 0, "%s (Table %d) 주문 상태", table_name, args->table_id);
             int status_count = ui_table_count_orders(mirror, mirror_count,
                                                        args->table_id);
             if (sel >= status_count) {
@@ -2572,10 +3105,7 @@ void ui_run_table(const TableUiArgs *args) {
         else if (scr == TABLE_SCR_CART) {
     int lines = cart.count;
 
-    /*
-     * 주문 확정 팝업이 떠 있을 때는 y/n/ESC만 처리한다.
-     * 이 continue는 반드시 table_confirm_popup == 1인 경우 안에만 있어야 한다.
-     */
+    
     if (table_confirm_popup) {
         if (ch == 'y' || ch == 'Y') {
             if (ui_submit_cart_order(sock, args->table_id,
@@ -2594,9 +3124,7 @@ void ui_run_table(const TableUiArgs *args) {
         continue;
     }
 
-    /*
-     * 여기부터는 팝업이 없을 때의 기존 장바구니 조작
-     */
+    
     if (ch == KEY_UP && lines > 0) {
         sel = (sel + lines - 1) % lines;
     }
@@ -2661,10 +3189,7 @@ void ui_run_table(const TableUiArgs *args) {
                 sel = (sel + 1) % lines;
             }
 
-            /*
-             * 나중에 POS 쪽 주문 취소 프로토콜이 붙으면 여기에서
-             * 선택된 주문의 order_id를 찾아서 서버로 취소 요청을 보내면 된다.
-             */
+            
 
             if (ch == 'm') {
                 scr = TABLE_SCR_MENU;
@@ -2684,39 +3209,39 @@ void ui_run_table(const TableUiArgs *args) {
 
 static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int cols) {
     clear();
-    // 상단 안내 문구에 재조리(복귀) 설명 추가
+    
     mvprintw(0, 0, "Kitchen Display | ↑↓ 선택 · c 조리 · d 완료");
 
     int col_w = cols / 3;
 
-    // 1. 박스(U자 형태) 및 영역 제목 그리기
+    
     for (int i = 0; i < 3; ++i) {
         int start_x = i * col_w + 1;
         int end_x = (i + 1) * col_w - 2;
 
-        // 제목
+        
         if (i == 0) mvprintw(2, start_x + 2, "Waiting");
         if (i == 1) mvprintw(2, start_x + 2, "Cooking");
         if (i == 2) mvprintw(2, start_x + 2, "Done.");
 
-        // U자 형태의 테두리 그리기 (좌, 우, 하단)
+        
         for (int y = 3; y < rows - 2; ++y) {
             mvaddch(y, start_x, ACS_VLINE);
             mvaddch(y, end_x, ACS_VLINE);
         }
         mvhline(rows - 2, start_x + 1, ACS_HLINE, end_x - start_x - 1);
-        mvaddch(rows - 2, start_x, ACS_LLCORNER);  // 좌측 하단 모서리
-        mvaddch(rows - 2, end_x, ACS_LRCORNER);    // 우측 하단 모서리
+        mvaddch(rows - 2, start_x, ACS_LLCORNER);  
+        mvaddch(rows - 2, end_x, ACS_LRCORNER);    
     }
 
-    // 2. 각 상태별로 다음 주문이 그려질 Y축 좌표 초기화
+    
     int y_wait = 4, y_cook = 4, y_done = 4;
-    int shown = 0; // 선택(sel) 하이라이트를 위한 인덱스
+    int shown = 0; 
 
     for (int i = 0; i < count; ++i) {
         Order *o = &orders[i];
         
-        // 결제 완료(PAID)된 주문은 화면에서 제외
+        
         if (o->status == STATUS_PAID) {
             continue;
         }
@@ -2724,8 +3249,8 @@ static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int col
         int curr_x = 0;
         int curr_y = 0;
 
-        // 3. 주문 상태에 따라 출력될 위치(X, Y) 결정
-        if (o->status == STATUS_WAITING) {       // enum 이름이 STATUS_ORDERED 라면 변경해주세요.
+        
+        if (o->status == STATUS_WAITING) {       
             curr_x = 0 * col_w + 3;
             curr_y = y_wait++;
         } else if (o->status == STATUS_COOKING) {
@@ -2738,18 +3263,18 @@ static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int col
             continue;
         }
 
-        // 박스 하단을 벗어나면 출력 생략
+        
         if (curr_y >= rows - 3) continue;
 
-        // 4. 선택된 항목 하이라이트 및 내용 출력
+        
         if (shown == sel) {
             attron(A_REVERSE);
         }
         
-        // 그림과 같이 주문번호와 테이블 번호 출력
+        
         mvprintw(curr_y, curr_x, "#%04d T%02d", o->order_id, o->table_id);
         
-        // (선택) 박스 공간이 남는다면 메뉴 이름도 옆에 살짝 띄워줍니다. 
+        
         if (o->item_count > 0) {
             mvprintw(curr_y, curr_x + 12, "%.8s", o->items[0].name);
         }
@@ -2836,7 +3361,7 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
             } else if (strncmp(netline, "STAFF_CALL|", 11) == 0) {
                 mvprintw(1, 0, "%s", netline);
             } else if (strncmp(netline, "MENU_SYNC", 7) == 0) {
-                /* kitchen ignores menu sync */
+                
             }
         }
 
@@ -2849,7 +3374,7 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
             break;
         }
         
-        // 상하 방향키: 주문 선택 하이라이트 이동
+        
         if (ch == KEY_UP) {
             sel = (sel + nids - 1) % (nids ? nids : 1);
         }
@@ -2857,11 +3382,11 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
             sel = (sel + 1) % (nids ? nids : 1);
         }
 
-        // 좌우 방향키: 주문 상태 변경 (스택 간 이동)
+        
         if (nids > 0 && sel < nids) {
             int oid = ids[sel];
             
-            // 현재 선택된 주문의 실제 상태(status)를 찾기
+            
             Order *selected_order = NULL;
             for (int i = 0; i < bn; ++i) {
                 if (board[i].order_id == oid) {
@@ -2873,7 +3398,7 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
             if (selected_order != NULL) {
                 char buf[128] = {0};
 
-                // 우측 화살표 (→) : 다음 단계로 진행 (대기 -> 조리 -> 완료)
+                
                 if (ch == KEY_RIGHT) {
                     if (selected_order->status == STATUS_WAITING) { 
                         snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
@@ -2882,7 +3407,7 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
                     }
                 }
                 
-                // 좌측 화살표 (←) : 이전 단계로 복귀 (완료 -> 조리 -> 대기)
+                
                 else if (ch == KEY_LEFT) {
                     if (selected_order->status == STATUS_DONE) {
                         snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
@@ -2891,22 +3416,22 @@ void ui_run_kitchen(const KitchenUiArgs *args) {
                     }
                 }
 
-                // 단축키 'c' 또는 'C' : 무조건 '조리 중(COOKING)'으로 상태 변경
+                
                 else if (ch == 'c' || ch == 'C') {
-                    // 대기 중이거나 완료 상태일 때 모두 조리 중으로 이동 가능
+                    
                     if (selected_order->status != STATUS_COOKING) {
                         snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=COOKING\n", oid);
                     }
                 }
                 
-                // 단축키 'd' 또는 'D' : 무조건 '완료(DONE)'로 상태 변경
+                
                 else if (ch == 'd' || ch == 'D') {
                     if (selected_order->status != STATUS_DONE) {
                         snprintf(buf, sizeof(buf), "ORDER_UPDATE|order_id=%d|status=DONE\n", oid);
                     }
                 }
 
-                // 변경 사항이 있으면 서버로 업데이트 패킷 전송
+                
                 if (buf[0] != '\0') {
                     ui_send_line(sock, buf);
                 }
