@@ -576,6 +576,9 @@ static void handle_call_staff(ServerContext *ctx, const char *line) {
     snprintf(ctx->last_staff_message, sizeof(ctx->last_staff_message),
              "직원 호출: 테이블 %d", tbl);
     ctx->last_staff_time = time(NULL);
+    if (tbl > 0 && tbl <= MAX_TABLES) {
+        ctx->staff_call_at[tbl] = ctx->last_staff_time;
+    }
     pthread_mutex_unlock(&ctx->lock);
 
     char evt[MAX_PROTO_LINE];
