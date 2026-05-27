@@ -55,7 +55,7 @@ test: dirs $(BINDIR)/test_menu $(BINDIR)/test_order $(BINDIR)/test_protocol
 	./$(BINDIR)/test_protocol
 
 clean:
-	rm -f $(BINDIR)/*.o $(BINDIR)/pos_server $(BINDIR)/table_client $(BINDIR)/kitchen_client $(BINDIR)/test_menu $(BINDIR)/test_order $(BINDIR)/test_protocol
+	rm -rf $(BINDIR)
 
 HOST ?= 127.0.0.1
 PORT ?= 9090

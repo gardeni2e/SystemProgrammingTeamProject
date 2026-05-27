@@ -10,8 +10,8 @@
 
 void layout_init(StoreLayout *layout) {
     memset(layout, 0, sizeof(*layout));
-    layout->grid_rows = 9;
-    layout->grid_cols = 14;
+    layout->grid_rows = 5;
+    layout->grid_cols = 7;
 }
 
 const char *layout_zone_name(TableZone zone) {
@@ -44,57 +44,29 @@ static void layout_add_slot(StoreLayout *layout, int table_id, TableZone zone,
 
 void layout_init_default(StoreLayout *layout) {
     layout_init(layout);
-    layout->grid_rows = 9;
-    layout->grid_cols = 14;
+    layout->grid_rows = 5;
+    layout->grid_cols = 7;
 
-    /* 밖(외부) 22석 — 제공 이미지 배치 근사 */
-    layout_add_slot(layout, 1, TABLE_ZONE_OUTSIDE, 0, 9, "밖1");
-    layout_add_slot(layout, 2, TABLE_ZONE_OUTSIDE, 0, 8, "밖2");
-    layout_add_slot(layout, 3, TABLE_ZONE_OUTSIDE, 0, 7, "밖3");
-    layout_add_slot(layout, 4, TABLE_ZONE_OUTSIDE, 0, 6, "밖4");
-    layout_add_slot(layout, 5, TABLE_ZONE_OUTSIDE, 0, 5, "밖5");
-    layout_add_slot(layout, 6, TABLE_ZONE_OUTSIDE, 0, 4, "밖6");
-    layout_add_slot(layout, 7, TABLE_ZONE_OUTSIDE, 0, 3, "밖7");
-    layout_add_slot(layout, 8, TABLE_ZONE_OUTSIDE, 0, 2, "밖8");
-    layout_add_slot(layout, 9, TABLE_ZONE_OUTSIDE, 0, 0, "밖9");
+    
+    layout->count = 0;
 
-    layout_add_slot(layout, 10, TABLE_ZONE_OUTSIDE, 1, 0, "밖10");
-    layout_add_slot(layout, 11, TABLE_ZONE_OUTSIDE, 2, 0, "밖11");
-    layout_add_slot(layout, 12, TABLE_ZONE_OUTSIDE, 3, 0, "밖12");
-    layout_add_slot(layout, 13, TABLE_ZONE_OUTSIDE, 4, 0, "밖13");
-    layout_add_slot(layout, 14, TABLE_ZONE_OUTSIDE, 5, 0, "밖14");
+    
+    layout_add_slot(layout, 1, TABLE_ZONE_OUTSIDE, 0, 0, "밖1");
+    layout_add_slot(layout, 2, TABLE_ZONE_OUTSIDE, 0, 1, "밖2");
+    layout_add_slot(layout, 3, TABLE_ZONE_OUTSIDE, 1, 0, "밖3");
+    layout_add_slot(layout, 4, TABLE_ZONE_OUTSIDE, 1, 1, "밖4");
+    layout_add_slot(layout, 5, TABLE_ZONE_OUTSIDE, 2, 0, "밖5");
+    layout_add_slot(layout, 6, TABLE_ZONE_OUTSIDE, 2, 1, "밖6");
+    layout_add_slot(layout, 7, TABLE_ZONE_OUTSIDE, 3, 0, "밖7");
+    layout_add_slot(layout, 8, TABLE_ZONE_OUTSIDE, 3, 1, "밖8");
 
-    layout_add_slot(layout, 15, TABLE_ZONE_OUTSIDE, 6, 1, "밖15");
-    layout_add_slot(layout, 16, TABLE_ZONE_OUTSIDE, 6, 2, "밖16");
-    layout_add_slot(layout, 17, TABLE_ZONE_OUTSIDE, 6, 3, "밖17");
-    layout_add_slot(layout, 18, TABLE_ZONE_OUTSIDE, 6, 4, "밖18");
-    layout_add_slot(layout, 19, TABLE_ZONE_OUTSIDE, 6, 5, "밖19");
-    layout_add_slot(layout, 20, TABLE_ZONE_OUTSIDE, 6, 6, "밖20");
-    layout_add_slot(layout, 21, TABLE_ZONE_OUTSIDE, 6, 7, "밖21");
-    layout_add_slot(layout, 22, TABLE_ZONE_OUTSIDE, 6, 8, "밖22");
-
-    /* 안(내부) 19석 */
-    layout_add_slot(layout, 23, TABLE_ZONE_INSIDE, 1, 9, "안1");
-    layout_add_slot(layout, 24, TABLE_ZONE_INSIDE, 1, 8, "안2");
-    layout_add_slot(layout, 25, TABLE_ZONE_INSIDE, 1, 7, "안3");
-    layout_add_slot(layout, 26, TABLE_ZONE_INSIDE, 1, 6, "안4");
-    layout_add_slot(layout, 27, TABLE_ZONE_INSIDE, 1, 5, "안5");
-    layout_add_slot(layout, 28, TABLE_ZONE_INSIDE, 1, 4, "안6");
-    layout_add_slot(layout, 29, TABLE_ZONE_INSIDE, 1, 3, "안7");
-    layout_add_slot(layout, 30, TABLE_ZONE_INSIDE, 1, 2, "안8");
-
-    layout_add_slot(layout, 31, TABLE_ZONE_INSIDE, 2, 1, "안9");
-    layout_add_slot(layout, 32, TABLE_ZONE_INSIDE, 3, 1, "안10");
-    layout_add_slot(layout, 33, TABLE_ZONE_INSIDE, 4, 1, "안11");
-
-    layout_add_slot(layout, 34, TABLE_ZONE_INSIDE, 5, 2, "안12");
-    layout_add_slot(layout, 35, TABLE_ZONE_INSIDE, 5, 3, "안13");
-    layout_add_slot(layout, 36, TABLE_ZONE_INSIDE, 5, 4, "안14");
-    layout_add_slot(layout, 37, TABLE_ZONE_INSIDE, 5, 5, "안15");
-    layout_add_slot(layout, 38, TABLE_ZONE_INSIDE, 5, 6, "안16");
-    layout_add_slot(layout, 39, TABLE_ZONE_INSIDE, 5, 7, "안17");
-    layout_add_slot(layout, 40, TABLE_ZONE_INSIDE, 5, 8, "안18");
-    layout_add_slot(layout, 41, TABLE_ZONE_INSIDE, 5, 9, "안19");
+    
+    layout_add_slot(layout, 9, TABLE_ZONE_INSIDE, 1, 3, "안1");
+    layout_add_slot(layout, 10, TABLE_ZONE_INSIDE, 1, 4, "안2");
+    layout_add_slot(layout, 11, TABLE_ZONE_INSIDE, 1, 5, "안3");
+    layout_add_slot(layout, 12, TABLE_ZONE_INSIDE, 2, 3, "안4");
+    layout_add_slot(layout, 13, TABLE_ZONE_INSIDE, 2, 4, "안5");
+    layout_add_slot(layout, 14, TABLE_ZONE_INSIDE, 2, 5, "안6");
 }
 
 TablePlacement *layout_find_by_id(StoreLayout *layout, int table_id) {
