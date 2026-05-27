@@ -318,7 +318,8 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
         if (msg_x < x) {
             msg_x = x;
         }
-        mvprintw(msg_y, msg_x, "%.*s", w, msg);
+        printf("\033[%d;%dH%s\033[0m", msg_y + 1, msg_x + 1, msg);
+        fflush(stdout);
         return;
     }
 
@@ -358,7 +359,8 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
     FILE *fp = popen(cmd, "r");
     if (!fp) {
         const char *msg = "[image error]";
-        mvprintw(y + h / 2, x + 2, "%.*s", w - 2, msg);
+        printf("\033[%d;%dH%s\033[0m", y + h / 2 + 1, x + 2, msg);
+        fflush(stdout);
         return;
     }
 
@@ -371,13 +373,14 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
         if (len > 0 && line[len - 1] == '\n') {
             line[len - 1] = '\0';
         }
-        
-        mvprintw(draw_y + r, draw_x, "%-*.*s", draw_w, draw_w, line);
+        printf("\033[%d;%dH%s\033[0m", draw_y + r + 1, draw_x + 1, line);
         r++;
     }
 
     free(line);
     pclose(fp);
+    printf("\033[0m");
+    fflush(stdout);
 }
 
 #define CP_NORMAL        1
