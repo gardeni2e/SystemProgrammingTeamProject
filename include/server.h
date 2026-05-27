@@ -25,6 +25,7 @@ typedef struct ServerContext {
     int listen_fd;
     volatile sig_atomic_t shutting_down;
     volatile sig_atomic_t orders_revision;
+    volatile sig_atomic_t staff_revision;
     pthread_mutex_t lock;
     ClientSlot clients[MAX_CLIENTS];
     pthread_t accept_thread;
@@ -43,6 +44,7 @@ int server_load_persistent(ServerContext *ctx, char *err, size_t errsz);
 int server_save_config(ServerContext *ctx, char *err, size_t errsz);
 
 void server_touch_orders(ServerContext *ctx);
+void server_touch_staff(ServerContext *ctx);
 
 int server_find_order_index(ServerContext *ctx, int order_id);
 Order *server_get_order(ServerContext *ctx, int order_id);

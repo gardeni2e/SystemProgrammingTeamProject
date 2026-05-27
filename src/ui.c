@@ -911,7 +911,12 @@ static void ui_pos_draw_table_box(int top, int left, int h, int w,
     mvprintw(top, left + 1, "%-*s", w - 2, title);
 
     if (h >= 4) {
-        if (sum->order_count == 0) {
+        if (staff_call) {
+            mvprintw(top + 1, left + 1, "직원호출");
+            if (h >= 5 && sum->order_count > 0) {
+                mvprintw(top + 2, left + 1, "%d건", sum->order_count);
+            }
+        } else if (sum->order_count == 0) {
             mvprintw(top + 1, left + 1, "주문없음");
         } else {
             mvprintw(top + 1, left + 1, "%d건", sum->order_count);
@@ -920,7 +925,7 @@ static void ui_pos_draw_table_box(int top, int left, int h, int w,
             }
         }
     }
-    if (staff_call && h >= 6) {
+    if (staff_call && h >= 6 && sum->order_count > 0) {
         mvprintw(top + h - 2, left + 1, "!호출!");
     }
     attrset(A_NORMAL);
@@ -1570,6 +1575,7 @@ void ui_run_pos(ServerContext *ctx) {
     int layout_edit_idx = -1;
     int layout_move_mode = 0;
     uint32_t last_rev = 0;
+    uint32_t last_staff_rev = 0;
     int dirty = 1;
     time_t last_auto_redraw = 0;
 
@@ -1579,6 +1585,10 @@ void ui_run_pos(ServerContext *ctx) {
         if ((uint32_t)ctx->orders_revision != last_rev) {
             last_rev = (uint32_t)ctx->orders_revision;
             sel_payment = 0;
+            dirty = 1;
+        }
+        if ((uint32_t)ctx->staff_revision != last_staff_rev) {
+            last_staff_rev = (uint32_t)ctx->staff_revision;
             dirty = 1;
         }
 
@@ -1675,6 +1685,7 @@ void ui_run_pos(ServerContext *ctx) {
                     ctx->staff_call_at[tp->table_id] = 0;
                 }
                 pthread_mutex_unlock(&ctx->lock);
+                server_touch_staff(ctx);
                 (void)err;
                 dirty = 1;
             }
@@ -2058,6 +2069,7 @@ static void ui_draw_table_header(const char *table_name, int table_id,
     mvprintw(0, 2, "%s (Table %d) | 테이블 오더", table_name, table_id);
     mvprintw(0, cols - 18, "장바구니 %d개", cart_qty);
     mvhline(1, 0, ACS_HLINE, cols - 1);
+    mvprintw(1, 0, "%-*s", cols - 1, "");
 
     if (banner && banner[0]) {
         mvprintw(1, 2, "%.*s", cols - 4, banner);
@@ -2238,7 +2250,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         int notice_y = cart_y - 5;
         (void)ui_cart_total_qty(cart);
 
-        if (notice_y > body_y + 8) {
+        if (notice_y >= body_y + 3) {
             if (table_call_popup_ticks > 0) {
                 ui_draw_sidebar_notice(notice_y, button_x, button_w);
             } else {
@@ -3039,8 +3051,9 @@ void ui_run_table(const TableUiArgs *args) {
                         snprintf(buf, sizeof(buf), "CALL_STAFF|table=%d\n", args->table_id);
                         ui_send_line(sock, buf);
 
-                        banner[0] = '\0';
-                        table_call_popup_ticks = 12;
+                        snprintf(banner, sizeof(banner),
+                                 "직원 호출을 보냈습니다. 잠시만 기다려주세요.");
+                        table_call_popup_ticks = 24;
                     }
                 } else {
                     if (mc > 0 && sel >= 0 && sel < mc) {
