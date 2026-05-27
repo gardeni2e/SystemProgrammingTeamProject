@@ -471,6 +471,57 @@ static void ui_draw_card_box(int y, int x, int w, int h, int selected) {
     }
 }
 
+static void ui_draw_centered_text(int y, int x, int w, const char *text) {
+    int len = (int)strlen(text);
+    int tx = x + (w - len) / 2;
+
+    if (tx < x + 1) {
+        tx = x + 1;
+    }
+
+    mvprintw(y, tx, "%s", text);
+}
+
+static void ui_draw_sidebar_notice(int y, int x, int w) {
+    int h = 5;
+
+    if (w < 16) {
+        return;
+    }
+
+    if (has_colors()) {
+        attron(COLOR_PAIR(CP_CALL_BTN));
+    }
+
+    attron(A_BOLD);
+
+    mvhline(y, x, ACS_HLINE, w);
+    mvhline(y + h - 1, x, ACS_HLINE, w);
+    mvvline(y, x, ACS_VLINE, h);
+    mvvline(y, x + w - 1, ACS_VLINE, h);
+
+    mvaddch(y, x, ACS_ULCORNER);
+    mvaddch(y, x + w - 1, ACS_URCORNER);
+    mvaddch(y + h - 1, x, ACS_LLCORNER);
+    mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+
+    ui_draw_centered_text(y + 1, x + 1, w - 2, "직원 호출 완료");
+    ui_draw_centered_text(y + 2, x + 2, w - 2, "잠시만");
+    ui_draw_centered_text(y + 3, x + 1, w - 2, "기다려주세요!");
+
+    attroff(A_BOLD);
+
+    if (has_colors()) {
+        attroff(COLOR_PAIR(CP_CALL_BTN));
+    }
+}
+
+static void ui_clear_sidebar_notice(int y, int x, int w) {
+    for (int r = 0; r < 5; ++r) {
+        mvprintw(y + r, x, "%-*s", w, "");
+    }
+}
+
 static void ui_draw_sidebar_button(int y, int x, int w,
                                    const char *label,
                                    int selected,
@@ -1050,40 +1101,6 @@ static void ui_draw_confirm_popup(int rows, int cols, const Cart *cart) {
     }
 }
 
-static void ui_draw_call_popup(int rows, int cols) {
-    int w = 34;
-    int h = 7;
-    int y = rows / 2 - h / 2;
-    int x = cols / 2 - w / 2;
-
-    if (x < 1) {
-        x = 1;
-    }
-
-    if (y < 1) {
-        y = 1;
-    }
-
-    for (int r = 0; r < h; ++r) {
-        mvprintw(y + r, x, "%*s", w, "");
-    }
-
-    if (has_colors()) {
-        attron(COLOR_PAIR(CP_CALL_BTN));
-    }
-
-    attron(A_BOLD);
-    ui_draw_simple_box(y, x, w, h);
-    mvprintw(y + 1, x + 2, "직원 호출");
-    attroff(A_BOLD);
-
-    if (has_colors()) {
-        attroff(COLOR_PAIR(CP_CALL_BTN));
-    }
-
-    mvprintw(y + 3, x + 5, "직원을 호출하였습니다.");
-    mvprintw(y + 5, x + 5, "잠시만 기다려주세요.");
-}
 
 static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
                                const Cart *cart, int rows, int cols, int sel,
@@ -1174,7 +1191,16 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         int cart_y = body_y + body_h - 10;
         int order_y = body_y + body_h - 7;
         int call_y = body_y + body_h - 4;
+        int notice_y = cart_y - 5;
         int cart_qty = ui_cart_total_qty(cart);
+
+        if (notice_y > body_y + 8) {
+            if (table_call_popup_ticks > 0) {
+                ui_draw_sidebar_notice(notice_y, button_x, button_w);
+            } else {
+                ui_clear_sidebar_notice(notice_y, button_x, button_w);
+            }
+        }
 
         char cart_label[64];
         snprintf(cart_label, sizeof(cart_label), "🛒 CART [%d]",
@@ -1329,7 +1355,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         mvprintw(rows - 1, 0,
                  "%-*s",
                  cols - 1,
-                 "← 사이드바  → 메뉴판  ↑↓ 선택  SPACE 실행/담기  c 장바구니  k 직원호출  q 종료");
+                 "← 사이드바  → 메뉴판  ↑↓ 선택  SPACE 실행/담기  c 장바구니  q 종료");
         ui_attr_off(CP_FOOTER);
 
         refresh();
@@ -1402,7 +1428,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             if (has_colors()) {
                 attron(COLOR_PAIR(CP_FOOTER));
             }
-            mvprintw(rows - 2, 0, "m 메뉴판  k 직원호출  q 종료");
+            mvprintw(rows - 2, 0, "m 메뉴판  q 종료");
 
 
             if (has_colors()) {
@@ -1694,8 +1720,12 @@ void ui_run_table(const TableUiArgs *args) {
             mvprintw(0, 0, "Table %d 주문 상태", args->table_id);
             ui_draw_table_status_lines(mirror, mirror_count, args->table_id,
                                        rows, cols, 3);
-            mvprintw(rows - 2, 0, "m 메뉴화면 k 직원호출 q 종료");
+            mvprintw(rows - 2, 0, "m 메뉴화면  q 종료");
             refresh();
+        }
+
+        if (table_call_popup_ticks > 0) {
+            table_call_popup_ticks--;
         }
 
         int ch = wgetch(stdscr);
@@ -1787,7 +1817,9 @@ void ui_run_table(const TableUiArgs *args) {
                         char buf[80];
                         snprintf(buf, sizeof(buf), "CALL_STAFF|table=%d\n", args->table_id);
                         ui_send_line(sock, buf);
-                        snprintf(banner, sizeof(banner), "직원을 호출했습니다");
+
+                        banner[0] = '\0';
+                        table_call_popup_ticks = 12;
                     }
                 } else {
                     if (mc > 0 && sel >= 0 && sel < mc) {
@@ -1922,13 +1954,6 @@ void ui_run_table(const TableUiArgs *args) {
         ui_table_reset_images();
     }
 
-    if (ch == 'k') {
-        char buf[80];
-        snprintf(buf, sizeof(buf), "CALL_STAFF|table=%d\n", args->table_id);
-        ui_send_line(sock, buf);
-        snprintf(banner, sizeof(banner), "직원을 호출했습니다");
-    }
-
     if (ch == '\n' || ch == '\r' || ch == KEY_ENTER || ch == 'z') {
         if (cart.count > 0) {
             table_confirm_popup = 1;
@@ -1941,12 +1966,6 @@ void ui_run_table(const TableUiArgs *args) {
                 scr = TABLE_SCR_MENU;
                 focus = TABLE_FOCUS_MENU;
                 ui_table_reset_images();
-            }
-            if (ch == 'k') {
-                char buf[80];
-                snprintf(buf, sizeof(buf), "CALL_STAFF|table=%d\n",
-                         args->table_id);
-                ui_send_line(sock, buf);
             }
         }
     }
