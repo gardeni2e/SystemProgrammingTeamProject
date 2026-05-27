@@ -167,6 +167,10 @@ void server_touch_orders(ServerContext *ctx) {
     ctx->orders_revision++;
 }
 
+void server_touch_staff(ServerContext *ctx) {
+    ctx->staff_revision++;
+}
+
 static void broadcast_raw(ServerContext *ctx, const char *msg, size_t len) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (!ctx->clients[i].in_use) {
@@ -587,6 +591,7 @@ static void handle_call_staff(ServerContext *ctx, const char *line) {
         ctx->staff_call_at[tbl] = ctx->last_staff_time;
     }
     pthread_mutex_unlock(&ctx->lock);
+    server_touch_staff(ctx);
 
     char evt[MAX_PROTO_LINE];
     proto_build_staff_broadcast(tbl, evt, sizeof(evt));
