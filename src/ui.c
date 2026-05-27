@@ -1355,7 +1355,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         mvprintw(rows - 1, 0,
                  "%-*s",
                  cols - 1,
-                 "← 사이드바  → 메뉴판  ↑↓ 선택  SPACE 실행/담기  c 장바구니  q 종료");
+                 "← 사이드바  → 메뉴판  ↑↓ 선택  SPACE 실행/담기  q 종료");
         ui_attr_off(CP_FOOTER);
 
         refresh();
@@ -1588,20 +1588,196 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
     }
 }
 
+static void ui_draw_order_box(int y, int x, int w, int h) {
+    if (w < 2 || h < 2) {
+        return;
+    }
+
+    mvhline(y, x, ACS_HLINE, w);
+    mvhline(y + h - 1, x, ACS_HLINE, w);
+    mvvline(y, x, ACS_VLINE, h);
+    mvvline(y, x + w - 1, ACS_VLINE, h);
+
+    mvaddch(y, x, ACS_ULCORNER);
+    mvaddch(y, x + w - 1, ACS_URCORNER);
+    mvaddch(y + h - 1, x, ACS_LLCORNER);
+    mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+}
+
+static void ui_print_money(int y, int x, int value) {
+    mvprintw(y, x, "%d원", value);
+}
+
+static int ui_table_count_orders(Order *orders, int count, int table_id) {
+    int n = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (orders[i].table_id == table_id) {
+            n++;
+        }
+    }
+
+    return n;
+}
+
 static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
-                                       int rows, int cols, int base) {
-    (void)cols;
-    int line = base;
-    for (int i = 0; i < count && line < rows - 3; ++i) {
+                                       int rows, int cols, int base, int sel) {
+    int body_y = base;
+    int body_h = rows - body_y - 3;
+
+    int box_x = 2;
+    int box_y = body_y;
+    int box_w = cols - 4;
+    int box_h = body_h;
+
+    int order_no = 0;
+    int total_amount = 0;
+    int max_visible = 0;
+    int start_order = 0;
+
+    if (cols < 70 || rows < 18) {
+        mvprintw(base, 0,
+                 "터미널 크기가 너무 작습니다. 주문내역 화면을 보려면 창을 더 크게 해주세요.");
+        mvprintw(rows - 2, 0, "m 메뉴화면  q 종료");
+        return;
+    }
+
+    max_visible = (box_h - 4) / 5;
+    if (max_visible < 1) {
+        max_visible = 1;
+    }
+
+    if (sel >= max_visible) {
+        start_order = sel - max_visible + 1;
+    }
+
+    ui_draw_order_box(box_y, box_x, box_w, box_h);
+
+    attron(A_BOLD);
+    mvprintw(box_y, box_x + 2, " 주문 내역 ");
+    attroff(A_BOLD);
+
+    int line = box_y + 2;
+    int visible_no = 0;
+
+    for (int i = 0; i < count && visible_no < max_visible; ++i) {
         Order *o = &orders[i];
+
         if (o->table_id != table_id) {
             continue;
         }
-        mvprintw(line++, 0, "#%04d %-8s ₩%d · ", o->order_id,
-                 status_to_string(o->status), o->total_price);
-        for (int k = 0; k < o->item_count && k < 4; ++k) {
-            printw("%s x%d ", o->items[k].name, o->items[k].qty);
+
+        if (order_no++ < start_order) {
+            continue;
         }
+
+        total_amount += o->total_price;
+
+        int selected = (order_no - 1 == sel);
+
+        /*
+         * 주문 하나당 카드처럼 출력
+         */
+        if (line + 5 >= box_y + box_h - 1) {
+            mvprintw(line, box_x + 2, "... 더 많은 주문이 있습니다 ...");
+            break;
+        }
+
+        if (selected) {
+            if (has_colors()) {
+                attron(COLOR_PAIR(CP_MENU_SEL));
+            }
+            attron(A_BOLD);
+            mvprintw(line, box_x + 2, "▶ 주문 #%04d", o->order_id);
+            attroff(A_BOLD);
+            if (has_colors()) {
+                attroff(COLOR_PAIR(CP_MENU_SEL));
+            }
+        } else {
+            attron(A_BOLD);
+            mvprintw(line, box_x + 2, "  주문 #%04d", o->order_id);
+            attroff(A_BOLD);
+        }
+
+        mvprintw(line, box_x + 20, "상태: %s", status_to_string(o->status));
+
+        if (o->status == STATUS_WAITING) {
+            mvprintw(line, box_x + box_w - 24, "[취소 가능]");
+        } else if (o->status == STATUS_COOKING) {
+            mvprintw(line, box_x + box_w - 26, "[조리중 취소 불가]");
+        }
+
+        mvprintw(line + 1, box_x + 4, "합계: ");
+        ui_print_money(line + 1, box_x + 10, o->total_price);
+
+        mvprintw(line + 2, box_x + 4, "메뉴: ");
+
+        int item_x = box_x + 10;
+        int item_y = line + 2;
+
+        for (int k = 0; k < o->item_count && k < 5; ++k) {
+            char item_buf[80];
+
+            snprintf(item_buf, sizeof(item_buf), "%s x%d",
+                     o->items[k].name, o->items[k].qty);
+
+            if (item_x + (int)strlen(item_buf) + 2 >= box_x + box_w - 2) {
+                item_y++;
+                item_x = box_x + 10;
+
+                if (item_y >= line + 4) {
+                    mvprintw(item_y, item_x, "...");
+                    break;
+                }
+            }
+
+            mvprintw(item_y, item_x, "%s", item_buf);
+            item_x += (int)strlen(item_buf) + 3;
+        }
+
+        mvhline(line + 4, box_x + 2, ACS_HLINE, box_w - 4);
+
+        line += 5;
+        visible_no++;
+    }
+
+    if (order_no == 0) {
+        const char *msg1 = "아직 주문 내역이 없습니다";
+        const char *msg2 = "장바구니에서 주문을 확정해 주세요";
+
+        int cy = box_y + box_h / 2 - 1;
+
+        attron(A_BOLD);
+        mvprintw(cy, (cols - (int)strlen(msg1)) / 2, "%s", msg1);
+        attroff(A_BOLD);
+
+        mvprintw(cy + 2, (cols - (int)strlen(msg2)) / 2, "%s", msg2);
+    }
+
+    if (has_colors()) {
+        attron(COLOR_PAIR(CP_MENU_SEL));
+    }
+
+    attron(A_BOLD);
+    mvprintw(rows - 3, 2,
+            "%-*s",
+            cols - 4,
+            "");
+    mvprintw(rows - 3, 2,
+            "현재 테이블 주문 총액: %d원", total_amount);
+    attroff(A_BOLD);
+
+    if (has_colors()) {
+        attrset(COLOR_PAIR(CP_FOOTER));
+    } else {
+        attrset(A_BOLD);
+    }
+
+    mvprintw(rows - 1, 0,
+             "↑↓ 주문 선택  c 취소(추후 연결)  m 메뉴화면  q 종료");
+
+    if (has_colors()) {
+        attroff(COLOR_PAIR(CP_FOOTER));
     }
 }
 
@@ -1718,9 +1894,16 @@ void ui_run_table(const TableUiArgs *args) {
         } else {
             clear();
             mvprintw(0, 0, "Table %d 주문 상태", args->table_id);
+            int status_count = ui_table_count_orders(mirror, mirror_count,
+                                                       args->table_id);
+            if (sel >= status_count) {
+                sel = status_count - 1;
+            }
+            if (sel < 0) {
+                sel = 0;
+            }
             ui_draw_table_status_lines(mirror, mirror_count, args->table_id,
-                                       rows, cols, 3);
-            mvprintw(rows - 2, 0, "m 메뉴화면  q 종료");
+                                       rows, cols, 3, sel);
             refresh();
         }
 
@@ -1962,6 +2145,22 @@ void ui_run_table(const TableUiArgs *args) {
         }
     } 
 }else if (scr == TABLE_SCR_STATUS) {
+            int lines = ui_table_count_orders(mirror, mirror_count,
+                                              args->table_id);
+
+            if (ch == KEY_UP && lines > 0) {
+                sel = (sel + lines - 1) % lines;
+            }
+
+            if (ch == KEY_DOWN && lines > 0) {
+                sel = (sel + 1) % lines;
+            }
+
+            /*
+             * 나중에 POS 쪽 주문 취소 프로토콜이 붙으면 여기에서
+             * 선택된 주문의 order_id를 찾아서 서버로 취소 요청을 보내면 된다.
+             */
+
             if (ch == 'm') {
                 scr = TABLE_SCR_MENU;
                 focus = TABLE_FOCUS_MENU;
