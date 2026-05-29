@@ -62,4 +62,6 @@ void server_unregister_fd(ServerContext *ctx, int fd);
 
 void *server_accept_loop(void *arg);
 
+int server_cancel_order(ServerContext *ctx, int order_id, int table_id, char *err, size_t errsz);
+
 #endif

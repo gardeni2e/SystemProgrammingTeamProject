@@ -24,7 +24,8 @@ typedef enum {
     STATUS_WAITING = 0,
     STATUS_COOKING,
     STATUS_DONE,
-    STATUS_PAID
+    STATUS_PAID,
+    STATUS_CANCELLED
 } OrderStatus;
 
 typedef struct {

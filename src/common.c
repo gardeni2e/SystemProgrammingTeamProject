@@ -12,6 +12,8 @@ const char *status_to_string(OrderStatus st) {
         return "DONE";
     case STATUS_PAID:
         return "PAID";
+    case STATUS_CANCELLED:
+        return "CANCELLED";
     default:
         return "WAITING";
     }
@@ -32,6 +34,9 @@ OrderStatus status_from_string(const char *s) {
     }
     if (strcmp(s, "PAID") == 0) {
         return STATUS_PAID;
+    }
+    if (strcmp(s, "CANCELLED") == 0) {
+        return STATUS_CANCELLED;
     }
     return STATUS_WAITING;
 }
