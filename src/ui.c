@@ -318,7 +318,8 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
         if (msg_x < x) {
             msg_x = x;
         }
-        mvprintw(msg_y, msg_x, "%.*s", w, msg);
+        printf("\033[%d;%dH%s\033[0m", msg_y + 1, msg_x + 1, msg);
+        fflush(stdout);
         return;
     }
 
@@ -358,7 +359,8 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
     FILE *fp = popen(cmd, "r");
     if (!fp) {
         const char *msg = "[image error]";
-        mvprintw(y + h / 2, x + 2, "%.*s", w - 2, msg);
+        printf("\033[%d;%dH%s\033[0m", y + h / 2 + 1, x + 2, msg);
+        fflush(stdout);
         return;
     }
 
@@ -371,13 +373,14 @@ static void ui_draw_chafa_image(int y, int x, int w, int h, int menu_id) {
         if (len > 0 && line[len - 1] == '\n') {
             line[len - 1] = '\0';
         }
-        
-        mvprintw(draw_y + r, draw_x, "%-*.*s", draw_w, draw_w, line);
+        printf("\033[%d;%dH%s\033[0m", draw_y + r + 1, draw_x + 1, line);
         r++;
     }
 
     free(line);
     pclose(fp);
+    printf("\033[0m");
+    fflush(stdout);
 }
 
 #define CP_NORMAL        1
@@ -842,6 +845,9 @@ static void ui_pos_table_summary(ServerContext *ctx, int table_id,
         if (o->table_id != table_id) {
             continue;
         }
+        if (o->status == STATUS_CANCELLED) {
+            continue;
+        }
         sum->order_count++;
         if (o->status != STATUS_PAID) {
             sum->unpaid_total += o->total_price;
@@ -1117,6 +1123,9 @@ static void ui_draw_pos_payment(ServerContext *ctx, int rows, int cols,
     int max_rows = main.h - 3 - line;
     for (int i = 0; i < ctx->order_count && shown < max_rows; ++i) {
         Order *o = &ctx->orders[i];
+        if (o->status == STATUS_CANCELLED) {
+            continue;
+        }
         if (pay_table > 0 && o->table_id != pay_table) {
             continue;
         }
@@ -1164,6 +1173,9 @@ static int ui_pos_collect_table_order_indices(ServerContext *ctx, int table_id,
     int n = 0;
     pthread_mutex_lock(&ctx->lock);
     for (int i = 0; i < ctx->order_count && n < max_idxs; ++i) {
+        if (ctx->orders[i].status == STATUS_CANCELLED) {
+            continue;
+        }
         if (table_id <= 0 || ctx->orders[i].table_id == table_id) {
             idxs[n++] = i;
         }
@@ -1176,24 +1188,39 @@ static void ui_draw_pos_menu_admin(ServerContext *ctx, int rows, int cols,
                                    int sel) {
     clear();
     UiRect header, main, side, footer;
-    ui_pos_layout_frame(rows, cols, POS_TAB_MENU, &header, &main, &side, &footer);
+    ui_pos_layout_frame(rows, cols, POS_TAB_MENU,
+                        &header, &main, &side, &footer);
+
     ui_pos_draw_box(main, "메뉴 목록");
     if (side.w > 0) {
         ui_pos_draw_box(side, "선택 항목");
     }
 
     pthread_mutex_lock(&ctx->lock);
+
     int mc = ctx->menu.count;
     int base = 0;
-    ui_pos_print_in(main, base++, 0, A_DIM, "a 추가 · e 수정 · d 삭제 · s 품절 토글");
+
+    ui_pos_print_in(main, base++, 0, A_DIM,
+                    "a 추가 · e 수정 · d 삭제 · s 품절 · c 카테고리 · p 인기");
     base++;
+
     int shown = 0;
     int max_rows = main.h - 3 - base;
+
     for (int i = 0; i < mc && shown < max_rows; ++i) {
         MenuItem *m = &ctx->menu.items[i];
         attr_t a = (i == sel ? A_REVERSE : A_NORMAL);
-        ui_pos_print_in(main, base + shown, 0, a, "%3d  %-28s  ₩%-6d  %s",
-                        m->id, m->name, m->price, m->sold_out ? "[품절]" : "");
+
+        ui_pos_print_in(main, base + shown, 0, a,
+                        "%3d  %-22s  ₩%-6d  %-8s  %s %s",
+                        m->id,
+                        m->name,
+                        m->price,
+                        m->category[0] ? m->category : "기타",
+                        m->popular ? "[인기]" : "",
+                        m->sold_out ? "[품절]" : "");
+
         shown++;
     }
 
@@ -1207,29 +1234,47 @@ static void ui_draw_pos_menu_admin(ServerContext *ctx, int rows, int cols,
             if (sel >= mc) {
                 sel = mc - 1;
             }
+
             MenuItem *m = &ctx->menu.items[sel];
+
             ui_pos_print_in(side, 0, 0, A_BOLD, "%s", m->name);
             ui_pos_print_in(side, 1, 0, A_DIM, "ID: %d", m->id);
+
             ui_pos_print_in(side, 3, 0, A_NORMAL, "가격");
             ui_pos_print_in(side, 4, 0, A_BOLD, "₩%d", m->price);
-            ui_pos_print_in(side, 6, 0, A_NORMAL, "상태");
-            ui_pos_print_in(side, 7, 0,
+
+            ui_pos_print_in(side, 6, 0, A_NORMAL, "카테고리");
+            ui_pos_print_in(side, 7, 0, A_BOLD, "%s",
+                            m->category[0] ? m->category : "기타");
+
+            ui_pos_print_in(side, 9, 0, A_NORMAL, "인기메뉴");
+            ui_pos_print_in(side, 10, 0, A_BOLD, "%s",
+                            m->popular ? "예" : "아니오");
+
+            ui_pos_print_in(side, 12, 0, A_NORMAL, "상태");
+            ui_pos_print_in(side, 13, 0,
                             m->sold_out
                                 ? (A_BOLD | COLOR_PAIR(POS_COLOR_STAFF))
                                 : (A_BOLD | COLOR_PAIR(POS_COLOR_ACTIVE)),
                             "%s", m->sold_out ? "품절" : "판매중");
         }
-        ui_pos_print_in(side, side.h - 3, 0, A_DIM, "↑↓ 선택 · q 종료");
+
+        ui_pos_print_in(side, side.h - 4, 0, A_DIM, "c: 카테고리 변경");
+        ui_pos_print_in(side, side.h - 3, 0, A_DIM, "p: 인기메뉴 토글");
+        ui_pos_print_in(side, side.h - 2, 0, A_DIM, "↑↓ 선택 · q 종료");
     }
+
     pthread_mutex_unlock(&ctx->lock);
 
     move(footer.top, 0);
     clrtoeol();
     mvprintw(footer.top, 1,
-             "↑↓ 선택 · a 추가 · e 수정 · d 삭제 · s 품절 · q 종료");
+             "↑↓ 선택 · a 추가 · e 수정 · d 삭제 · s 품절 · c 카테고리 · p 인기 · q 종료");
+
     move(footer.top + 1, 0);
     clrtoeol();
-    mvprintw(footer.top + 1, 1, "주의: 변경사항은 즉시 서버 메뉴에 반영됩니다.");
+    mvprintw(footer.top + 1, 1,
+             "주의: 변경사항은 즉시 서버 메뉴에 반영됩니다.");
 }
 
 #define POS_WGETCH_TIMEOUT_MS 200
@@ -1787,42 +1832,146 @@ void ui_run_pos(ServerContext *ctx) {
             if (ch == 'a') {
                 MenuItem mi;
                 memset(&mi, 0, sizeof(mi));
+
                 char namebuf[MAX_NAME];
-                namebuf[0] = '\0';
-                ui_prompt_string(stdscr, rows - 6, "이름: ", namebuf,
-                                 sizeof(namebuf), 1);
+                char catbuf[MAX_CATEGORY];
                 int price = 0;
-                ui_prompt_int(stdscr, rows - 5, "가격: ", &price);
+                int popular = 0;
+
+                namebuf[0] = '\0';
+                catbuf[0] = '\0';
+
+                ui_prompt_string(stdscr, rows - 8, "이름: ",
+                                namebuf, sizeof(namebuf), 1);
+
+                ui_prompt_int(stdscr, rows - 7, "가격: ", &price);
+
+                ui_prompt_string(stdscr, rows - 6,
+                                "카테고리(식사류/고기류/주류/음료/기타): ",
+                                catbuf, sizeof(catbuf), 0);
+
+                ui_prompt_int(stdscr, rows - 5,
+                            "인기메뉴? 1=예 0=아니오: ",
+                            &popular);
+
                 strncpy(mi.name, namebuf, sizeof(mi.name) - 1);
+                mi.name[sizeof(mi.name) - 1] = '\0';
+
                 mi.price = price;
+
+                strncpy(mi.category,
+                        catbuf[0] ? catbuf : "기타",
+                        sizeof(mi.category) - 1);
+                mi.category[sizeof(mi.category) - 1] = '\0';
+
+                mi.popular = popular ? 1 : 0;
+                mi.sold_out = 0;
+
                 char err[160];
+
                 pthread_mutex_lock(&ctx->lock);
                 menu_add_item(&ctx->menu, &mi, err, sizeof(err));
                 menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
                 pthread_mutex_unlock(&ctx->lock);
+
                 server_broadcast_line(ctx, "MENU_SYNC\n");
                 dirty = 1;
             }
             if (ch == 'e' && mc > 0) {
                 pthread_mutex_lock(&ctx->lock);
                 int id = ctx->menu.items[sel_menu].id;
+                MenuItem mi = ctx->menu.items[sel_menu];
                 pthread_mutex_unlock(&ctx->lock);
-                MenuItem mi;
-                pthread_mutex_lock(&ctx->lock);
-                mi = ctx->menu.items[sel_menu];
-                pthread_mutex_unlock(&ctx->lock);
+
                 char nb[MAX_NAME];
+                char cb[MAX_CATEGORY];
+
                 strncpy(nb, mi.name, sizeof(nb) - 1);
                 nb[sizeof(nb) - 1] = '\0';
-                ui_prompt_string(stdscr, rows - 6, "새 이름: ", nb, sizeof(nb),
-                                 0);
-                ui_prompt_int(stdscr, rows - 5, "새 가격: ", &mi.price);
+
+                strncpy(cb,
+                        mi.category[0] ? mi.category : "기타",
+                        sizeof(cb) - 1);
+                cb[sizeof(cb) - 1] = '\0';
+
+                ui_prompt_string(stdscr, rows - 8,
+                                "새 이름: ", nb, sizeof(nb), 0);
+
+                ui_prompt_int(stdscr, rows - 7,
+                            "새 가격: ", &mi.price);
+
+                ui_prompt_string(stdscr, rows - 6,
+                                "새 카테고리: ", cb, sizeof(cb), 0);
+
+                ui_prompt_int(stdscr, rows - 5,
+                            "인기메뉴? 1=예 0=아니오: ",
+                            &mi.popular);
+
                 strncpy(mi.name, nb, sizeof(mi.name) - 1);
+                mi.name[sizeof(mi.name) - 1] = '\0';
+
+                strncpy(mi.category,
+                        cb[0] ? cb : "기타",
+                        sizeof(mi.category) - 1);
+                mi.category[sizeof(mi.category) - 1] = '\0';
+
+                mi.popular = mi.popular ? 1 : 0;
+
                 char err[160];
+
                 pthread_mutex_lock(&ctx->lock);
                 menu_update_item(&ctx->menu, id, &mi, err, sizeof(err));
                 menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
                 pthread_mutex_unlock(&ctx->lock);
+
+                server_broadcast_line(ctx, "MENU_SYNC\n");
+                dirty = 1;
+            }
+            if (ch == 'c' && mc > 0) {
+                pthread_mutex_lock(&ctx->lock);
+
+                int id = ctx->menu.items[sel_menu].id;
+                char catbuf[MAX_CATEGORY];
+
+                strncpy(catbuf,
+                        ctx->menu.items[sel_menu].category[0]
+                            ? ctx->menu.items[sel_menu].category
+                            : "기타",
+                        sizeof(catbuf) - 1);
+                catbuf[sizeof(catbuf) - 1] = '\0';
+
+                pthread_mutex_unlock(&ctx->lock);
+
+                ui_prompt_string(stdscr, rows - 5,
+                                "새 카테고리: ",
+                                catbuf, sizeof(catbuf), 0);
+
+                char err[160];
+
+                pthread_mutex_lock(&ctx->lock);
+                menu_set_category(&ctx->menu, id,
+                                catbuf[0] ? catbuf : "기타",
+                                err, sizeof(err));
+                menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
+                pthread_mutex_unlock(&ctx->lock);
+
+                server_broadcast_line(ctx, "MENU_SYNC\n");
+                dirty = 1;
+            }
+
+            if (ch == 'p' && mc > 0) {
+                char err[160];
+
+                pthread_mutex_lock(&ctx->lock);
+
+                int id = ctx->menu.items[sel_menu].id;
+                int cur = ctx->menu.items[sel_menu].popular;
+
+                menu_set_popular(&ctx->menu, id, cur ? 0 : 1, err, sizeof(err));
+                menu_save_file(&ctx->menu, MENU_PATH, err, sizeof(err));
+
+                pthread_mutex_unlock(&ctx->lock);
+
                 server_broadcast_line(ctx, "MENU_SYNC\n");
                 dirty = 1;
             }
@@ -1960,17 +2109,19 @@ typedef enum {
     TABLE_FOCUS_SIDEBAR
 } TableFocus;
 
-#define SIDEBAR_POPULAR 0
-#define SIDEBAR_MEAL    1
-#define SIDEBAR_MEAT    2
-#define SIDEBAR_ALCOHOL 3
-#define SIDEBAR_DRINK   4
-#define SIDEBAR_CART    5
-#define SIDEBAR_ORDER   6
-#define SIDEBAR_CALL    7
-#define SIDEBAR_COUNT   8
+#define SIDEBAR_ALL     0
+#define SIDEBAR_POPULAR 1
+#define SIDEBAR_MEAL    2
+#define SIDEBAR_MEAT    3
+#define SIDEBAR_ALCOHOL 4
+#define SIDEBAR_DRINK   5
+#define SIDEBAR_CART    6
+#define SIDEBAR_ORDER   7
+#define SIDEBAR_CALL    8
+#define SIDEBAR_COUNT   9
 
 static const char *TABLE_CATEGORY_NAMES[] = {
+    "전체 메뉴",
     "인기 메뉴",
     "식사류",
     "고기류",
@@ -2024,6 +2175,7 @@ static int last_menu_page = -1;
 static int last_menu_rows = -1;
 static int last_menu_cols = -1;
 static int last_menu_count = -1;
+static int last_menu_category = -1;
 static int table_confirm_popup = 0;
 static int table_call_popup_ticks = 0;
 static TableScreen last_table_screen = -1;
@@ -2034,6 +2186,7 @@ static void ui_table_reset_images(void) {
     last_menu_cols = -1;
     last_menu_count = -1;
     last_menu_sel = -1;
+    last_menu_category = -1;
 }
 
 static int ui_menu_is_selectable(const MenuCatalog *cat, int idx) {
@@ -2042,6 +2195,163 @@ static int ui_menu_is_selectable(const MenuCatalog *cat, int idx) {
     }
 
     return !cat->items[idx].sold_out;
+}
+
+static void ui_trim_field(char *s) {
+    if (!s) {
+        return;
+    }
+
+    int len = (int)strlen(s);
+
+    while (len > 0 &&
+           (s[len - 1] == ' ' ||
+            s[len - 1] == '\t' ||
+            s[len - 1] == '\r' ||
+            s[len - 1] == '\n')) {
+        s[len - 1] = '\0';
+        len--;
+    }
+
+    int start = 0;
+    while (s[start] == ' ' || s[start] == '\t') {
+        start++;
+    }
+
+    if (start > 0) {
+        memmove(s, s + start, strlen(s + start) + 1);
+    }
+}
+
+static const char *ui_category_value_from_sidebar(int sidebar_category) {
+    switch (sidebar_category) {
+    case SIDEBAR_MEAL:
+        return "식사류";
+    case SIDEBAR_MEAT:
+        return "고기류";
+    case SIDEBAR_ALCOHOL:
+        return "주류";
+    case SIDEBAR_DRINK:
+        return "음료";
+    default:
+        return "";
+    }
+}
+
+static int ui_menu_match_category(const MenuItem *m, int current_category) {
+    if (!m) {
+        return 0;
+    }
+
+    if (current_category == SIDEBAR_ALL) {
+        return 1;
+    }
+
+    if (current_category == SIDEBAR_POPULAR) {
+        return m->popular ? 1 : 0;
+    }
+
+    char saved[MAX_CATEGORY];
+    char target[MAX_CATEGORY];
+
+    strncpy(saved, m->category, sizeof(saved) - 1);
+    saved[sizeof(saved) - 1] = '\0';
+
+    strncpy(target, ui_category_value_from_sidebar(current_category),
+            sizeof(target) - 1);
+    target[sizeof(target) - 1] = '\0';
+
+    ui_trim_field(saved);
+    ui_trim_field(target);
+
+    if (target[0] == '\0') {
+        return 1;
+    }
+
+    return strcmp(saved, target) == 0;
+}
+
+static int ui_menu_visible_count(const MenuCatalog *cat, int current_category) {
+    int n = 0;
+
+    if (!cat) {
+        return 0;
+    }
+
+    for (int i = 0; i < cat->count; ++i) {
+        if (ui_menu_match_category(&cat->items[i], current_category)) {
+            n++;
+        }
+    }
+
+    return n;
+}
+
+static int ui_menu_index_at_visible(const MenuCatalog *cat,
+                                    int current_category,
+                                    int visible_index) {
+    int shown = 0;
+
+    if (!cat) {
+        return -1;
+    }
+
+    for (int i = 0; i < cat->count; ++i) {
+        if (!ui_menu_match_category(&cat->items[i], current_category)) {
+            continue;
+        }
+
+        if (shown == visible_index) {
+            return i;
+        }
+
+        shown++;
+    }
+
+    return -1;
+}
+
+static int ui_menu_visible_pos_of_index(const MenuCatalog *cat,
+                                        int current_category,
+                                        int real_index) {
+    int shown = 0;
+
+    if (!cat || real_index < 0 || real_index >= cat->count) {
+        return -1;
+    }
+
+    for (int i = 0; i < cat->count; ++i) {
+        if (!ui_menu_match_category(&cat->items[i], current_category)) {
+            continue;
+        }
+
+        if (i == real_index) {
+            return shown;
+        }
+
+        shown++;
+    }
+
+    return -1;
+}
+
+static int ui_menu_first_selectable_in_category(const MenuCatalog *cat,
+                                                int current_category) {
+    if (!cat) {
+        return -1;
+    }
+
+    for (int i = 0; i < cat->count; ++i) {
+        if (!ui_menu_match_category(&cat->items[i], current_category)) {
+            continue;
+        }
+
+        if (ui_menu_is_selectable(cat, i)) {
+            return i;
+        }
+    }
+
+    return -1;
 }
 
 static int ui_find_selectable_from(const MenuCatalog *cat, int start, int step) {
@@ -2057,6 +2367,31 @@ static int ui_find_selectable_from(const MenuCatalog *cat, int start, int step) 
         }
 
         idx += step;
+    }
+
+    return -1;
+}
+
+
+static int ui_find_selectable_visible_from(const MenuCatalog *cat,
+                                           int current_category,
+                                           int visible_start,
+                                           int visible_step) {
+    int visible_count = ui_menu_visible_count(cat, current_category);
+    int v = visible_start;
+
+    if (!cat || visible_count <= 0 || visible_step == 0) {
+        return -1;
+    }
+
+    while (v >= 0 && v < visible_count) {
+        int real_idx = ui_menu_index_at_visible(cat, current_category, v);
+
+        if (real_idx >= 0 && ui_menu_is_selectable(cat, real_idx)) {
+            return real_idx;
+        }
+
+        v += visible_step;
     }
 
     return -1;
@@ -2182,9 +2517,17 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         const int grid_rows = 2;
         const int page_size = grid_cols * grid_rows;
 
-        int page = sel / page_size;
+        int visible_count = ui_menu_visible_count(cat, current_category);
+        int visible_sel = ui_menu_visible_pos_of_index(cat, current_category, sel);
+
+        if (visible_sel < 0) {
+            visible_sel = 0;
+        }
+
+        int page = visible_sel / page_size;
         int page_start = page * page_size;
-        int total_pages = (cat->count + page_size - 1) / page_size;
+        int total_pages = (visible_count + page_size - 1) / page_size;
+
         if (total_pages <= 0) {
             total_pages = 1;
         }
@@ -2209,7 +2552,8 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         if (page != last_menu_page ||
             rows != last_menu_rows ||
             cols != last_menu_cols ||
-            cat->count != last_menu_count){
+            visible_count != last_menu_count ||
+            current_category != last_menu_category) {
             need_image_redraw = 1;
         }
 
@@ -2225,7 +2569,7 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         mvprintw(body_y + 1, 2, "카테고리");
         ui_attr_off(CP_SIDEBAR);
 
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 6; ++i) {
             int y = body_y + 3 + i * 2;
             int selected = (focus == TABLE_FOCUS_SIDEBAR && sidebar_sel == i);
             int active = (current_category == i);
@@ -2283,6 +2627,30 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         mvprintw(body_y, menu_x + 2, "%s", TABLE_CATEGORY_NAMES[current_category]);
         mvprintw(body_y, cols - 10, "%d / %d", page + 1, total_pages);
 
+int dbg_meat = 0;
+int dbg_meal = 0;
+int dbg_alcohol = 0;
+int dbg_drink = 0;
+int dbg_popular = 0;
+
+for (int di = 0; di < cat->count; ++di) {
+    if (strcmp(cat->items[di].category, "고기류") == 0) {
+        dbg_meat++;
+    }
+    if (strcmp(cat->items[di].category, "식사류") == 0) {
+        dbg_meal++;
+    }
+    if (strcmp(cat->items[di].category, "주류") == 0) {
+        dbg_alcohol++;
+    }
+    if (strcmp(cat->items[di].category, "음료") == 0) {
+        dbg_drink++;
+    }
+    if (cat->items[di].popular) {
+        dbg_popular++;
+    }
+}
+
         int grid_top = body_y + 2;
         int grid_h = body_h - 7;
         int cell_gap_x = 2;
@@ -2297,65 +2665,42 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         }
 
         for (int n = 0; n < page_size; ++n) {
-            int idx = page_start + n;
+            int visible_idx = page_start + n;
+            int idx = ui_menu_index_at_visible(cat, current_category, visible_idx);
+
             int gr = n / grid_cols;
             int gc = n % grid_cols;
 
             int y = grid_top + gr * (cell_h + cell_gap_y);
             int x = menu_x + 2 + gc * (cell_w + cell_gap_x);
+
             int inner_x = x + 1;
-            
             int inner_w = cell_w - 2;
-            
-            int selected = (idx == sel && focus == TABLE_FOCUS_MENU);
 
-            if (selected) {
-                attron(A_BOLD);
-                if (has_colors()) {
-                    attron(COLOR_PAIR(CP_MENU_SEL));
-                }
-
-                mvhline(y, x, '#', cell_w);
-                mvhline(y + cell_h - 1, x, '#', cell_w);
-                mvvline(y, x, '#', cell_h);
-                mvvline(y, x + cell_w - 1, '#', cell_h);
-
-                if (has_colors()) {
-                    attroff(COLOR_PAIR(CP_MENU_SEL));
-                }
-                attroff(A_BOLD);
-            } else {
-                mvhline(y, x, ACS_HLINE, cell_w);
-                mvhline(y + cell_h - 1, x, ACS_HLINE, cell_w);
-                mvvline(y, x, ACS_VLINE, cell_h);
-                mvvline(y, x + cell_w - 1, ACS_VLINE, cell_h);
-            }
+            int selected = (idx >= 0 && idx == sel && focus == TABLE_FOCUS_MENU);
 
             ui_draw_card_box(y, x, cell_w, cell_h, selected);
 
-            if (idx < cat->count) {
-                const MenuItem *m = &cat->items[idx];
+            if (idx < 0 || idx >= cat->count) {
+                mvprintw(y + cell_h - 3, inner_x, "%-*s", inner_w, "");
+                mvprintw(y + cell_h - 2, inner_x, "%-*s", inner_w, "");
+                continue;
+            }
 
-                if (selected) {
-                    attron(A_REVERSE | A_BOLD);
-                }
-
-                mvprintw(y + cell_h - 3, inner_x, "%-*.*s",
-                         inner_w, inner_w, m->name);
+            const MenuItem *m = &cat->items[idx];
 
             int text_x = x + 1;
             int name_y = y + cell_h - 3;
             int price_y = y + cell_h - 2;
             int text_w = cell_w - 2;
 
-            
             mvprintw(name_y, text_x, "%-*s", text_w, "");
             mvprintw(price_y, text_x, "%-*s", text_w, "");
 
-            
-            mvprintw(name_y, text_x, "%-*.*s", text_w, text_w, m->name);
+            if (selected) {
+                attron(A_REVERSE | A_BOLD);
+            }
 
-            
             if (m->sold_out) {
                 attron(A_DIM);
             }
@@ -2373,26 +2718,16 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
             if (m->sold_out) {
                 attroff(A_DIM);
             }
-            if (selected) {
-                    attroff(A_REVERSE | A_BOLD);
-                }
-            } else {
-                mvprintw(y + cell_h - 3, inner_x, "%-*s", inner_w, "");
-                mvprintw(y + cell_h - 2, inner_x, "%-*s", inner_w, "");
-            }
 
             if (selected) {
-                attroff(A_BOLD);
-                ui_attr_off(CP_MENU_SEL);
-            } else {
-                ui_attr_off(CP_CARD);
+                attroff(A_REVERSE | A_BOLD);
             }
         }
 
         int info_y = footer_y - 1;
         mvhline(info_y - 1, menu_x, ACS_HLINE, menu_w - 1);
 
-        if (cat->count > 0 && sel >= 0 && sel < cat->count) {
+        if (cat->count > 0 && sel >= 0 && sel < cat->count && ui_menu_match_category(&cat->items[sel], current_category)) {
             const MenuItem *m = &cat->items[sel];
             if (m->sold_out) {
                 mvprintw(info_y, menu_x + 2,
@@ -2418,21 +2753,26 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
 
         if (need_image_redraw) {
             for (int n = 0; n < page_size; ++n) {
-                int idx = page_start + n;
-                if (idx >= cat->count) {
+                int visible_idx = page_start + n;
+                int idx = ui_menu_index_at_visible(cat, current_category, visible_idx);
+
+                if (idx < 0 || idx >= cat->count) {
                     continue;
                 }
 
                 int gr = n / grid_cols;
                 int gc = n % grid_cols;
+
                 int y = grid_top + gr * (cell_h + cell_gap_y);
                 int x = menu_x + 2 + gc * (cell_w + cell_gap_x);
+
                 int inner_x = x + 1;
                 int inner_y = y + 1;
                 int inner_w = cell_w - 2;
                 int img_h = cell_h - 4;
 
                 const MenuItem *m = &cat->items[idx];
+
                 ui_clear_rect(inner_y, inner_x, inner_w, img_h);
                 ui_draw_chafa_image(inner_y, inner_x, inner_w, img_h, m->id);
             }
@@ -2443,9 +2783,10 @@ static void ui_draw_table_menu(const MenuCatalog *cat, TableScreen scr,
         last_menu_page = page;
         last_menu_rows = rows;
         last_menu_cols = cols;
-        last_menu_count = cat->count;
+        last_menu_count = visible_count;
         last_menu_sel = sel;
         last_table_screen = scr;
+        last_menu_category = current_category;
     } else if (scr == TABLE_SCR_CART) {
         int content_y = base;
         int content_h = rows - base - 4;
@@ -2648,12 +2989,35 @@ static int ui_table_count_orders(Order *orders, int count, int table_id) {
     int n = 0;
 
     for (int i = 0; i < count; ++i) {
-        if (orders[i].table_id == table_id) {
+        if (orders[i].table_id == table_id &&
+            orders[i].status != STATUS_CANCELLED) {
             n++;
         }
     }
 
     return n;
+}
+
+static Order *ui_table_get_nth_order(Order *orders, int count, int table_id, int nth) {
+    int n = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (orders[i].table_id != table_id) {
+            continue;
+        }
+
+        if (orders[i].status == STATUS_CANCELLED) {
+            continue;
+        }
+
+        if (n == nth) {
+            return &orders[i];
+        }
+
+        n++;
+    }
+
+    return NULL;
 }
 
 static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
@@ -2700,6 +3064,10 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
         Order *o = &orders[i];
 
         if (o->table_id != table_id) {
+            continue;
+        }
+
+        if (o->status == STATUS_CANCELLED) {
             continue;
         }
 
@@ -2810,7 +3178,7 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
     }
 
     mvprintw(rows - 1, 0,
-             "↑↓ 주문 선택  c 취소(추후 연결)  m 메뉴화면  q 종료");
+             "↑↓ 주문 선택  c 취소(WAITING 상태만 가능)  m 메뉴화면  q 종료");
 
     if (has_colors()) {
         attroff(COLOR_PAIR(CP_FOOTER));
@@ -2874,8 +3242,8 @@ void ui_run_table(const TableUiArgs *args) {
     cart_init(&cart);
     TableScreen scr = TABLE_SCR_MENU;
     TableFocus focus = TABLE_FOCUS_MENU;
-    int sidebar_sel = SIDEBAR_POPULAR;
-    int current_category = SIDEBAR_POPULAR;
+    int sidebar_sel = SIDEBAR_ALL;
+    int current_category = SIDEBAR_ALL;
     int sel = 0;
     char banner[160];
     banner[0] = '\0';
@@ -2973,15 +3341,32 @@ void ui_run_table(const TableUiArgs *args) {
             int mc = cat.count;
             const int grid_cols = 3;
             const int page_size = 6;
-            int old_page = sel / page_size;
+
+            int old_visible_sel =
+                ui_menu_visible_pos_of_index(&cat, current_category, sel);
+            if (old_visible_sel < 0) {
+                old_visible_sel = 0;
+            }
+            int old_page = old_visible_sel / page_size;
 
             if (ch == KEY_LEFT) {
                 if (focus == TABLE_FOCUS_MENU) {
-                    if (sel % grid_cols == 0) {
+                    int visible_sel =
+                        ui_menu_visible_pos_of_index(&cat, current_category, sel);
+
+                    if (visible_sel < 0) {
+                        visible_sel = 0;
+                    }
+
+                    if (visible_sel % grid_cols == 0) {
                         focus = TABLE_FOCUS_SIDEBAR;
                         sidebar_sel = current_category;
                     } else {
-                        int next = ui_find_selectable_from(&cat, sel - 1, -1);
+                        int next =
+                            ui_find_selectable_visible_from(&cat,
+                                                            current_category,
+                                                            visible_sel - 1,
+                                                            -1);
 
                         if (next >= 0) {
                             sel = next;
@@ -2993,7 +3378,18 @@ void ui_run_table(const TableUiArgs *args) {
                     focus = TABLE_FOCUS_MENU;
                     ui_table_reset_images();
                 } else {
-                    int next = ui_find_selectable_from(&cat, sel + 1, 1);
+                    int visible_sel =
+                        ui_menu_visible_pos_of_index(&cat, current_category, sel);
+
+                    if (visible_sel < 0) {
+                        visible_sel = 0;
+                    }
+
+                    int next =
+                        ui_find_selectable_visible_from(&cat,
+                                                        current_category,
+                                                        visible_sel + 1,
+                                                        1);
 
                     if (next >= 0) {
                         sel = next;
@@ -3005,7 +3401,18 @@ void ui_run_table(const TableUiArgs *args) {
                         sidebar_sel--;
                     }
                 } else {
-                    int next = ui_find_selectable_from(&cat, sel - grid_cols, -grid_cols);
+                    int visible_sel =
+                        ui_menu_visible_pos_of_index(&cat, current_category, sel);
+
+                    if (visible_sel < 0) {
+                        visible_sel = 0;
+                    }
+
+                    int next =
+                        ui_find_selectable_visible_from(&cat,
+                                                        current_category,
+                                                        visible_sel - grid_cols,
+                                                        -grid_cols);
 
                     if (next >= 0) {
                         sel = next;
@@ -3017,7 +3424,18 @@ void ui_run_table(const TableUiArgs *args) {
                         sidebar_sel++;
                     }
                 } else {
-                    int next = ui_find_selectable_from(&cat, sel + grid_cols, grid_cols);
+                    int visible_sel =
+                        ui_menu_visible_pos_of_index(&cat, current_category, sel);
+
+                    if (visible_sel < 0) {
+                        visible_sel = 0;
+                    }
+
+                    int next =
+                        ui_find_selectable_visible_from(&cat,
+                                                        current_category,
+                                                        visible_sel + grid_cols,
+                                                        grid_cols);
 
                     if (next >= 0) {
                         sel = next;
@@ -3029,14 +3447,16 @@ void ui_run_table(const TableUiArgs *args) {
                         current_category = sidebar_sel;
 
                         {
-                            int first = ui_find_selectable_from(&cat, 0, 1);
+                            int first =
+                                ui_menu_first_selectable_in_category(&cat, current_category);
                             sel = (first >= 0) ? first : 0;
                         }
 
                         snprintf(banner, sizeof(banner),
-                                "%s 선택됨 - 현재는 UI만 적용되어 전체 메뉴를 표시합니다",
+                                "%s 선택됨",
                                 TABLE_CATEGORY_NAMES[current_category]);
 
+                        focus = TABLE_FOCUS_MENU;
                         ui_table_reset_images();
                     } else if (sidebar_sel == SIDEBAR_CART) {
                         scr = TABLE_SCR_CART;
@@ -3077,38 +3497,73 @@ void ui_run_table(const TableUiArgs *args) {
                 }
             }
 
-            int new_page = sel / page_size;
+        {
+            int new_visible_sel =
+                ui_menu_visible_pos_of_index(&cat, current_category, sel);
+
+            if (new_visible_sel < 0) {
+                new_visible_sel = 0;
+            }
+
+            int new_page = new_visible_sel / page_size;
 
             if (old_page != new_page) {
                 ui_table_reset_images();
             }
+        }
 
-            if (mc > 0) {
-                if (sel < 0) {
-                    sel = 0;
+        if (mc > 0) {
+            int visible_count = ui_menu_visible_count(&cat, current_category);
+
+            if (visible_count <= 0) {
+                sel = 0;
+            } else {
+                if (sel < 0 || sel >= mc ||
+                    !ui_menu_match_category(&cat.items[sel], current_category)) {
+                    int first =
+                        ui_menu_first_selectable_in_category(&cat, current_category);
+                    sel = (first >= 0) ? first : 0;
                 }
 
-                if (sel >= mc) {
-                    sel = mc - 1;
-                }
+                if (sel >= 0 && sel < mc && !ui_menu_is_selectable(&cat, sel)) {
+                    int visible_sel =
+                        ui_menu_visible_pos_of_index(&cat, current_category, sel);
 
-                if (!ui_menu_is_selectable(&cat, sel)) {
-                    int next = ui_find_selectable_from(&cat, sel + 1, 1);
+                    int next = -1;
 
-                    if (next < 0) {
-                        next = ui_find_selectable_from(&cat, sel - 1, -1);
+                    if (visible_sel >= 0) {
+                        next =
+                            ui_find_selectable_visible_from(&cat,
+                                                            current_category,
+                                                            visible_sel + 1,
+                                                            1);
+
+                        if (next < 0) {
+                            next =
+                                ui_find_selectable_visible_from(&cat,
+                                                                current_category,
+                                                                visible_sel - 1,
+                                                                -1);
+                        }
                     }
 
                     if (next >= 0) {
                         sel = next;
                     }
                 }
-            } else {
-                sel = 0;
             }
+        } else {
+            sel = 0;
+        }
 
             {
-                int new_page = sel / page_size;
+                int new_visible_sel = ui_menu_visible_pos_of_index(&cat, current_category, sel);
+
+                if (new_visible_sel < 0) {
+                    new_visible_sel = 0;
+                }
+
+                int new_page = new_visible_sel / page_size;
 
                 if (new_page != last_menu_page) {
                     ui_table_reset_images();
@@ -3202,7 +3657,23 @@ void ui_run_table(const TableUiArgs *args) {
                 sel = (sel + 1) % lines;
             }
 
-            
+            if (ch == 'c' || ch == 'C') {
+                Order *target = ui_table_get_nth_order(mirror, mirror_count, args->table_id, sel);
+
+                if (!target) {
+                    snprintf(banner, sizeof(banner), "취소할 주문이 없습니다");
+                } else if (target->status != STATUS_WAITING) {
+                    snprintf(banner, sizeof(banner), "조리 시작 후에는 주문을 취소할 수 없습니다");
+                } else {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "ORDER_CANCEL|order_id=%d\n", target->order_id);
+                    ui_send_line(sock, buf);
+
+                    snprintf(banner, sizeof(banner),
+                            "주문 #%04d 취소 요청을 보냈습니다",
+                            target->order_id);
+                }
+            }
 
             if (ch == 'm') {
                 scr = TABLE_SCR_MENU;
@@ -3253,7 +3724,9 @@ static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int col
 
     for (int i = 0; i < count; ++i) {
         Order *o = &orders[i];
-        
+        if (o->status == STATUS_PAID || o->status == STATUS_CANCELLED) {
+            continue;
+        }
         
         if (o->status == STATUS_PAID) {
             continue;
@@ -3303,7 +3776,7 @@ static int ui_kitchen_collect_active(Order *orders, int count, int *ids,
                                      int max_ids) {
     int n = 0;
     for (int i = 0; i < count && n < max_ids; ++i) {
-        if (orders[i].status != STATUS_PAID) {
+        if (orders[i].status != STATUS_PAID && orders[i].status != STATUS_CANCELLED) {
             ids[n++] = orders[i].order_id;
         }
     }

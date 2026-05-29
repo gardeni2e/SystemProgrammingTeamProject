@@ -31,4 +31,6 @@ void proto_build_staff_broadcast(int table_id, char *out, size_t outsz);
 int proto_parse_order_broadcast(const char *msg, Order *out_order,
                                 char *err, size_t errsz);
 
+int proto_parse_order_cancel(const char *msg, int *order_id_out, char *err, size_t errsz);
+
 #endif

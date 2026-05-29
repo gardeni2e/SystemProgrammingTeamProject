@@ -18,5 +18,10 @@ int menu_update_item(MenuCatalog *cat, int id, const MenuItem *item, char *err,
 int menu_delete_item(MenuCatalog *cat, int id, char *err, size_t errsz);
 int menu_set_soldout(MenuCatalog *cat, int id, int sold_out, char *err,
                      size_t errsz);
+int menu_set_category(MenuCatalog *cat, int id, const char *category,
+                      char *err, size_t errsz);
+
+int menu_set_popular(MenuCatalog *cat, int id, int popular,
+                     char *err, size_t errsz);
 
 #endif

@@ -35,38 +35,77 @@ int proto_build_menu_response(const MenuCatalog *cat, char *out, size_t outsz) {
     pos += (size_t)w;
     for (int i = 0; i < cat->count; ++i) {
         char name[MAX_NAME];
+        char category[MAX_CATEGORY];
+
         strncpy(name, cat->items[i].name, sizeof(name) - 1);
         name[sizeof(name) - 1] = '\0';
         sanitize_field(name);
+
+        strncpy(category,
+                cat->items[i].category[0] ? cat->items[i].category : "기타",
+                sizeof(category) - 1);
+        category[sizeof(category) - 1] = '\0';
+        sanitize_field(category);
+
         w = snprintf(out + pos, outsz > pos ? outsz - pos : 0,
-                     "%s%d,%s,%d,%d%s", i > 0 ? ";" : "", cat->items[i].id,
-                     name, cat->items[i].price, cat->items[i].sold_out ? 1 : 0,
-                     "");
+                    "%s%d,%s,%d,%d,%s,%d",
+                    i > 0 ? ";" : "",
+                    cat->items[i].id,
+                    name,
+                    cat->items[i].price,
+                    cat->items[i].sold_out ? 1 : 0,
+                    category,
+                    cat->items[i].popular ? 1 : 0);
+
         if (w < 0 || (size_t)w >= outsz - pos) {
             return -1;
         }
+
         pos += (size_t)w;
     }
     return 0;
 }
 
 int proto_parse_menu_csv_segment(const char *segment, MenuItem *out_item) {
-    char buf[MAX_NAME + 64];
+    char buf[MAX_NAME + MAX_CATEGORY + 128];
+
     strncpy(buf, segment, sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0';
+
     char *save = NULL;
     char *idtok = strtok_r(buf, ",", &save);
     char *nametok = strtok_r(NULL, ",", &save);
     char *pricetok = strtok_r(NULL, ",", &save);
     char *sotok = strtok_r(NULL, ",", &save);
+    char *categorytok = strtok_r(NULL, ",", &save);
+    char *populartok = strtok_r(NULL, ",", &save);
+
     if (!idtok || !nametok || !pricetok || !sotok) {
         return -1;
     }
+
+    memset(out_item, 0, sizeof(*out_item));
+
     out_item->id = atoi(idtok);
+
     strncpy(out_item->name, nametok, sizeof(out_item->name) - 1);
     out_item->name[sizeof(out_item->name) - 1] = '\0';
+
     out_item->price = atoi(pricetok);
     out_item->sold_out = atoi(sotok) ? 1 : 0;
+
+    if (categorytok && categorytok[0] != '\0') {
+        strncpy(out_item->category, categorytok,
+                sizeof(out_item->category) - 1);
+        out_item->category[sizeof(out_item->category) - 1] = '\0';
+    } else {
+        strncpy(out_item->category, "기타",
+                sizeof(out_item->category) - 1);
+        out_item->category[sizeof(out_item->category) - 1] = '\0';
+    }
+
+    out_item->popular = populartok ? (atoi(populartok) ? 1 : 0) : 0;
+
     return 0;
 }
 
@@ -175,6 +214,40 @@ int proto_parse_order_update(const char *msg, int *order_id_out,
     }
     *order_id_out = oid;
     *status_out = st;
+    return 0;
+}
+
+int proto_parse_order_cancel(const char *msg, int *order_id_out, char *err, size_t errsz) {
+    const char *p = strstr(msg, "ORDER_CANCEL|");
+    if (!p) {
+        copy_err(err, errsz, "not ORDER_CANCEL");
+        return -1;
+    }
+
+    p += strlen("ORDER_CANCEL|");
+
+    char buf[256];
+    strncpy(buf, p, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    int oid = -1;
+
+    char *saveptr = NULL;
+    char *tok = strtok_r(buf, "|", &saveptr);
+
+    while (tok) {
+        if (strncmp(tok, "order_id=", 9) == 0) {
+            oid = atoi(tok + 9);
+        }
+        tok = strtok_r(NULL, "|", &saveptr);
+    }
+
+    if (oid <= 0) {
+        copy_err(err, errsz, "bad order_id");
+        return -1;
+    }
+
+    *order_id_out = oid;
     return 0;
 }
 

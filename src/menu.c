@@ -14,24 +14,40 @@ void menu_init_catalog(MenuCatalog *cat) {
 
 static int write_default_menu_file(const char *path, char *err, size_t errsz) {
     const char *csv =
-        "id,name,price,soldout\n"
-        "1,Kimchi Fried Rice,9000,0\n"
-        "2,Soy Sauce Egg Rice,7500,0\n"
-        "3,Miso Soup,3000,0\n"
-        "4,Ice Americano,4500,0\n"
-        "5,Latte,5000,0\n";
+        "id,name,price,soldout,category,popular\n"
+        "1,Kimchi Fried Rice,9000,0,식사,1\n"
+        "2,Soy Sauce Egg Rice,7500,0,식사,0\n"
+        "3,Miso Soup,3000,0,사이드,0\n"
+        "4,Ice Americano,4500,0,음료,1\n"
+        "5,Latte,5000,0,음료,0\n";
+
     int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+
     if (fd < 0) {
         snprintf(err, errsz, "open default menu: %s", strerror(errno));
         return -1;
     }
+
     ssize_t wr = write(fd, csv, strlen(csv));
+
     close(fd);
+
     if (wr != (ssize_t)strlen(csv)) {
         snprintf(err, errsz, "write default menu incomplete");
         return -1;
     }
+
     return 0;
+}
+
+static void menu_fill_defaults(MenuItem *m) {
+    if (m->category[0] == '\0') {
+        strncpy(m->category, "기타", sizeof(m->category) - 1);
+        m->category[sizeof(m->category) - 1] = '\0';
+    }
+
+    m->sold_out = m->sold_out ? 1 : 0;
+    m->popular = m->popular ? 1 : 0;
 }
 
 static int parse_header_ok(const char *line) {
@@ -81,19 +97,39 @@ int menu_load_file(MenuCatalog *cat, const char *path, char *err, size_t errsz) 
         char *nametok = strtok_r(NULL, ",", &s2);
         char *pricetok = strtok_r(NULL, ",", &s2);
         char *sotok = strtok_r(NULL, ",", &s2);
+        char *categorytok = strtok_r(NULL, ",", &s2);
+        char *populartok = strtok_r(NULL, ",", &s2);
+
         if (!idtok || !nametok || !pricetok || !sotok) {
             line = strtok_r(NULL, "\n", &save);
             continue;
         }
+
         if (cat->count >= MAX_MENU_ITEMS) {
             break;
         }
+
         MenuItem *m = &cat->items[cat->count];
+
+        memset(m, 0, sizeof(*m));
+
         m->id = atoi(idtok);
+
         strncpy(m->name, nametok, sizeof(m->name) - 1);
         m->name[sizeof(m->name) - 1] = '\0';
+
         m->price = atoi(pricetok);
         m->sold_out = atoi(sotok) ? 1 : 0;
+
+        if (categorytok && categorytok[0] != '\0') {
+            strncpy(m->category, categorytok, sizeof(m->category) - 1);
+            m->category[sizeof(m->category) - 1] = '\0';
+        }
+
+        m->popular = populartok ? (atoi(populartok) ? 1 : 0) : 0;
+
+        menu_fill_defaults(m);
+
         if (m->id > 0 && m->name[0] != '\0') {
             cat->count++;
         }
@@ -118,7 +154,7 @@ int menu_save_file(const MenuCatalog *cat, const char *path, char *err,
         return -1;
     }
     char line[512];
-    int n = snprintf(line, sizeof(line), "id,name,price,soldout\n");
+    int n = snprintf(line, sizeof(line),"id,name,price,soldout,category,popular\n");
     if (write(fd, line, (size_t)n) != n) {
         close(fd);
         snprintf(err, errsz, "write header failed");
@@ -126,8 +162,13 @@ int menu_save_file(const MenuCatalog *cat, const char *path, char *err,
     }
     for (int i = 0; i < cat->count; ++i) {
         const MenuItem *m = &cat->items[i];
-        n = snprintf(line, sizeof(line), "%d,%s,%d,%d\n", m->id, m->name,
-                     m->price, m->sold_out ? 1 : 0);
+        n = snprintf(line, sizeof(line), "%d,%s,%d,%d,%s,%d\n",
+             m->id,
+             m->name,
+             m->price,
+             m->sold_out ? 1 : 0,
+             m->category[0] ? m->category : "기타",
+             m->popular ? 1 : 0);
         if (write(fd, line, (size_t)n) != n) {
             close(fd);
             snprintf(err, errsz, "write row failed");
@@ -181,6 +222,9 @@ int menu_add_item(MenuCatalog *cat, const MenuItem *item, char *err,
         return -1;
     }
     MenuItem copy = *item;
+
+    menu_fill_defaults(&copy);
+
     if (copy.id <= 0) {
         copy.id = next_menu_id(cat);
     }
@@ -200,6 +244,7 @@ int menu_update_item(MenuCatalog *cat, int id, const MenuItem *item, char *err,
         return -1;
     }
     MenuItem copy = *item;
+    menu_fill_defaults(&copy);
     copy.id = id;
     cat->items[idx] = copy;
     return 0;
@@ -226,5 +271,39 @@ int menu_set_soldout(MenuCatalog *cat, int id, int sold_out, char *err,
         return -1;
     }
     cat->items[idx].sold_out = sold_out ? 1 : 0;
+    return 0;
+}
+
+int menu_set_category(MenuCatalog *cat, int id, const char *category,
+                      char *err, size_t errsz) {
+    int idx = menu_index_by_id(cat, id);
+
+    if (idx < 0) {
+        snprintf(err, errsz, "menu id not found");
+        return -1;
+    }
+
+    if (!category || category[0] == '\0') {
+        category = "기타";
+    }
+
+    strncpy(cat->items[idx].category, category,
+            sizeof(cat->items[idx].category) - 1);
+    cat->items[idx].category[sizeof(cat->items[idx].category) - 1] = '\0';
+
+    return 0;
+}
+
+int menu_set_popular(MenuCatalog *cat, int id, int popular,
+                     char *err, size_t errsz) {
+    int idx = menu_index_by_id(cat, id);
+
+    if (idx < 0) {
+        snprintf(err, errsz, "menu id not found");
+        return -1;
+    }
+
+    cat->items[idx].popular = popular ? 1 : 0;
+
     return 0;
 }
