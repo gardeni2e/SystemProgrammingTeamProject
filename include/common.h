@@ -10,6 +10,7 @@
 #define MAX_CLIENTS 64
 #define MAX_PROTO_LINE 16384
 #define MAX_NAME 96
+#define MAX_CATEGORY 32
 #define MAX_TABLES 64
 #define DEFAULT_PORT 9090
 
@@ -53,8 +54,10 @@ typedef struct {
 typedef struct {
     int id;
     char name[MAX_NAME];
+    char category[MAX_CATEGORY];
     int price;
     int sold_out;
+    int popular;
 } MenuItem;
 
 typedef struct {
