@@ -202,7 +202,7 @@ static void send_snapshot_locked(ServerContext *ctx, int fd, ClientKind kind,
                                  int table_id) {
     for (int i = 0; i < ctx->order_count; ++i) {
         Order *o = &ctx->orders[i];
-        if (o->status == STATUS_PAID) {
+        if (o->status == STATUS_PAID || o->status == STATUS_CANCELLED) {
             continue;
         }
         if (kind == CLIENT_TABLE && o->table_id != table_id) {
@@ -437,6 +437,44 @@ int server_update_order_status(ServerContext *ctx, int order_id,
     return 0;
 }
 
+int server_cancel_order(ServerContext *ctx, int order_id, int table_id, char *err, size_t errsz) {
+    pthread_mutex_lock(&ctx->lock);
+
+    Order *o = server_get_order(ctx, order_id);
+    if (!o) {
+        pthread_mutex_unlock(&ctx->lock);
+        snprintf(err, errsz, "order not found");
+        return -1;
+    }
+
+    if (o->table_id != table_id) {
+        pthread_mutex_unlock(&ctx->lock);
+        snprintf(err, errsz, "table mismatch");
+        return -1;
+    }
+
+    if (o->status != STATUS_WAITING) {
+        pthread_mutex_unlock(&ctx->lock);
+        snprintf(err, errsz, "cannot cancel after cooking started");
+        return -1;
+    }
+
+    o->status = STATUS_CANCELLED;
+
+    char evt[MAX_PROTO_LINE];
+    proto_build_order_broadcast(o, evt, sizeof(evt));
+
+    size_t el = strlen(evt);
+    evt[el++] = '\n';
+    evt[el] = '\0';
+
+    broadcast_raw(ctx, evt, el);
+    server_touch_orders(ctx);
+
+    pthread_mutex_unlock(&ctx->lock);
+    return 0;
+}
+
 int server_pay_order(ServerContext *ctx, int order_id, char *err,
                      size_t errsz) {
     pthread_mutex_lock(&ctx->lock);
@@ -577,6 +615,27 @@ static void handle_order_update_client(ServerContext *ctx, const char *line) {
     server_update_order_status(ctx, oid, st, err, sizeof(err));
 }
 
+static void handle_order_cancel_client(ServerContext *ctx, int fd, const char *line, int table_id) {
+    int oid = 0;
+    char err[160];
+
+    if (proto_parse_order_cancel(line, &oid, err, sizeof(err)) != 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "ERROR|%s\n", err);
+        write_all(fd, buf, strlen(buf));
+        return;
+    }
+
+    if (server_cancel_order(ctx, oid, table_id, err, sizeof(err)) != 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "ERROR|%s\n", err);
+        write_all(fd, buf, strlen(buf));
+        return;
+    }
+
+    write_all(fd, "OK|cancel\n", strlen("OK|cancel\n"));
+}
+
 static void handle_call_staff(ServerContext *ctx, const char *line) {
     int tbl = 0;
     char err[160];
@@ -663,6 +722,13 @@ static void *client_thread_main(void *arg) {
                 continue;
             }
             handle_order_create_client(ctx, fd, line, table_id);
+        } else if (strncmp(line, "ORDER_CANCEL|", 13) == 0) {
+            if (kind != CLIENT_TABLE) {
+                write_all(fd, "ERROR|forbidden\n", 16);
+                continue;
+            }
+
+            handle_order_cancel_client(ctx, fd, line, table_id);
         } else if (strncmp(line, "ORDER_UPDATE|", 13) == 0) {
             if (kind != CLIENT_KITCHEN) {
                 write_all(fd, "ERROR|forbidden\n", 16);

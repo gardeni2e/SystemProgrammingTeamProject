@@ -845,6 +845,9 @@ static void ui_pos_table_summary(ServerContext *ctx, int table_id,
         if (o->table_id != table_id) {
             continue;
         }
+        if (o->status == STATUS_CANCELLED) {
+            continue;
+        }
         sum->order_count++;
         if (o->status != STATUS_PAID) {
             sum->unpaid_total += o->total_price;
@@ -1120,6 +1123,9 @@ static void ui_draw_pos_payment(ServerContext *ctx, int rows, int cols,
     int max_rows = main.h - 3 - line;
     for (int i = 0; i < ctx->order_count && shown < max_rows; ++i) {
         Order *o = &ctx->orders[i];
+        if (o->status == STATUS_CANCELLED) {
+            continue;
+        }
         if (pay_table > 0 && o->table_id != pay_table) {
             continue;
         }
@@ -1167,6 +1173,9 @@ static int ui_pos_collect_table_order_indices(ServerContext *ctx, int table_id,
     int n = 0;
     pthread_mutex_lock(&ctx->lock);
     for (int i = 0; i < ctx->order_count && n < max_idxs; ++i) {
+        if (ctx->orders[i].status == STATUS_CANCELLED) {
+            continue;
+        }
         if (table_id <= 0 || ctx->orders[i].table_id == table_id) {
             idxs[n++] = i;
         }
@@ -2642,15 +2651,6 @@ for (int di = 0; di < cat->count; ++di) {
     }
 }
 
-mvprintw(body_y + 1, menu_x + 2,
-         "DEBUG all=%d pop=%d meat=%d meal=%d alcohol=%d drink=%d",
-         cat->count,
-         dbg_popular,
-         dbg_meat,
-         dbg_meal,
-         dbg_alcohol,
-         dbg_drink);
-
         int grid_top = body_y + 2;
         int grid_h = body_h - 7;
         int cell_gap_x = 2;
@@ -2989,12 +2989,35 @@ static int ui_table_count_orders(Order *orders, int count, int table_id) {
     int n = 0;
 
     for (int i = 0; i < count; ++i) {
-        if (orders[i].table_id == table_id) {
+        if (orders[i].table_id == table_id &&
+            orders[i].status != STATUS_CANCELLED) {
             n++;
         }
     }
 
     return n;
+}
+
+static Order *ui_table_get_nth_order(Order *orders, int count, int table_id, int nth) {
+    int n = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (orders[i].table_id != table_id) {
+            continue;
+        }
+
+        if (orders[i].status == STATUS_CANCELLED) {
+            continue;
+        }
+
+        if (n == nth) {
+            return &orders[i];
+        }
+
+        n++;
+    }
+
+    return NULL;
 }
 
 static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
@@ -3041,6 +3064,10 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
         Order *o = &orders[i];
 
         if (o->table_id != table_id) {
+            continue;
+        }
+
+        if (o->status == STATUS_CANCELLED) {
             continue;
         }
 
@@ -3151,7 +3178,7 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
     }
 
     mvprintw(rows - 1, 0,
-             "↑↓ 주문 선택  c 취소(추후 연결)  m 메뉴화면  q 종료");
+             "↑↓ 주문 선택  c 취소(WAITING 상태만 가능)  m 메뉴화면  q 종료");
 
     if (has_colors()) {
         attroff(COLOR_PAIR(CP_FOOTER));
@@ -3630,7 +3657,23 @@ void ui_run_table(const TableUiArgs *args) {
                 sel = (sel + 1) % lines;
             }
 
-            
+            if (ch == 'c' || ch == 'C') {
+                Order *target = ui_table_get_nth_order(mirror, mirror_count, args->table_id, sel);
+
+                if (!target) {
+                    snprintf(banner, sizeof(banner), "취소할 주문이 없습니다");
+                } else if (target->status != STATUS_WAITING) {
+                    snprintf(banner, sizeof(banner), "조리 시작 후에는 주문을 취소할 수 없습니다");
+                } else {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "ORDER_CANCEL|order_id=%d\n", target->order_id);
+                    ui_send_line(sock, buf);
+
+                    snprintf(banner, sizeof(banner),
+                            "주문 #%04d 취소 요청을 보냈습니다",
+                            target->order_id);
+                }
+            }
 
             if (ch == 'm') {
                 scr = TABLE_SCR_MENU;
@@ -3681,7 +3724,9 @@ static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int col
 
     for (int i = 0; i < count; ++i) {
         Order *o = &orders[i];
-        
+        if (o->status == STATUS_PAID || o->status == STATUS_CANCELLED) {
+            continue;
+        }
         
         if (o->status == STATUS_PAID) {
             continue;
@@ -3731,7 +3776,7 @@ static int ui_kitchen_collect_active(Order *orders, int count, int *ids,
                                      int max_ids) {
     int n = 0;
     for (int i = 0; i < count && n < max_ids; ++i) {
-        if (orders[i].status != STATUS_PAID) {
+        if (orders[i].status != STATUS_PAID && orders[i].status != STATUS_CANCELLED) {
             ids[n++] = orders[i].order_id;
         }
     }

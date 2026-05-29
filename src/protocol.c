@@ -217,6 +217,40 @@ int proto_parse_order_update(const char *msg, int *order_id_out,
     return 0;
 }
 
+int proto_parse_order_cancel(const char *msg, int *order_id_out, char *err, size_t errsz) {
+    const char *p = strstr(msg, "ORDER_CANCEL|");
+    if (!p) {
+        copy_err(err, errsz, "not ORDER_CANCEL");
+        return -1;
+    }
+
+    p += strlen("ORDER_CANCEL|");
+
+    char buf[256];
+    strncpy(buf, p, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    int oid = -1;
+
+    char *saveptr = NULL;
+    char *tok = strtok_r(buf, "|", &saveptr);
+
+    while (tok) {
+        if (strncmp(tok, "order_id=", 9) == 0) {
+            oid = atoi(tok + 9);
+        }
+        tok = strtok_r(NULL, "|", &saveptr);
+    }
+
+    if (oid <= 0) {
+        copy_err(err, errsz, "bad order_id");
+        return -1;
+    }
+
+    *order_id_out = oid;
+    return 0;
+}
+
 int proto_parse_payment_request(const char *msg, int *order_id_out,
                                 char *err, size_t errsz) {
     const char *p = strstr(msg, "PAYMENT_REQUEST|");
