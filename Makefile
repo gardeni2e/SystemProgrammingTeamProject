@@ -8,9 +8,11 @@ SRCDIR := src
 COMMON_SRC := common.c protocol.c menu.c order.c storage.c layout.c
 COMMON_OBJ := $(COMMON_SRC:%.c=$(BINDIR)/%.o)
 
-POS_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(BINDIR)/ui.o $(BINDIR)/pos_server.o
-TABLE_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(BINDIR)/ui.o $(BINDIR)/table_client.o
-KITCHEN_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(BINDIR)/ui.o $(BINDIR)/kitchen_client.o
+UI_OBJ := $(BINDIR)/ui_common.o $(BINDIR)/ui_pos.o $(BINDIR)/ui_table.o $(BINDIR)/ui_kitchen.o
+
+POS_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(UI_OBJ) $(BINDIR)/pos_server.o
+TABLE_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(UI_OBJ) $(BINDIR)/table_client.o
+KITCHEN_OBJ := $(COMMON_OBJ) $(BINDIR)/server.o $(UI_OBJ) $(BINDIR)/kitchen_client.o
 
 .PHONY: all clean run-server run-table run-kitchen test dirs
 

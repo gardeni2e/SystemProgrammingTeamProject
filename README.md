@@ -35,7 +35,7 @@ cd project
 make
 ```
 
-한글 UI는 **UTF-8 로케일 + `-lncursesw`(wide)** 조합으로 렌더링합니다(`ui.c`에서 `setlocale`, `<ncursesw/ncurses.h>` 사용). 터미널 인코딩이 UTF-8인지 확인하세요.
+한글 UI는 **UTF-8 로케일 + `-lncursesw`(wide)** 조합으로 렌더링합니다(`ui_common.c` 등에서 `setlocale`, `<ncursesw/ncurses.h>` 사용). 터미널 인코딩이 UTF-8인지 확인하세요.
 
 추가로 이미지 미리보기를 시험하려면 `sudo apt install -y chafa` 후 `data/img_<메뉴ID>.png` 파일을 배치합니다.
 
@@ -90,7 +90,8 @@ project/
 │   ├── order.h
 │   ├── storage.h
 │   ├── server.h
-│   └── ui.h
+│   ├── ui.h
+│   └── ui_common.h
 ├── src/
 │   ├── pos_server.c
 │   ├── table_client.c
@@ -100,7 +101,10 @@ project/
 │   ├── order.c
 │   ├── storage.c
 │   ├── server.c
-│   ├── ui.c
+│   ├── ui_common.c
+│   ├── ui_pos.c
+│   ├── ui_table.c
+│   ├── ui_kitchen.c
 │   └── common.c
 ├── data/
 │   ├── menu.csv
