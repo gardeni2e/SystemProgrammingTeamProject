@@ -1384,7 +1384,7 @@ static void ui_draw_table_status_lines(Order *orders, int count, int table_id,
             attroff(A_BOLD);
         }
 
-        mvprintw(line, box_x + 20, "상태: %s", status_to_string(o->status));
+        mvprintw(line, box_x + 20, "상태: %s", status_to_label(o->status));
 
         if (o->status == STATUS_WAITING) {
             mvprintw(line, box_x + box_w - 24, "[취소 가능]");

@@ -283,13 +283,11 @@ static void ui_pos_table_summary(ServerContext *ctx, int table_id,
         if (o->table_id != table_id) {
             continue;
         }
-        if (o->status == STATUS_CANCELLED) {
+        if (o->status == STATUS_CANCELLED || o->status == STATUS_PAID) {
             continue;
         }
         sum->order_count++;
-        if (o->status != STATUS_PAID) {
-            sum->unpaid_total += o->total_price;
-        }
+        sum->unpaid_total += o->total_price;
         if (o->status == STATUS_DONE) {
             sum->done_total += o->total_price;
         }
@@ -475,8 +473,9 @@ static void ui_draw_pos_home(ServerContext *ctx, const StoreLayout *layout,
                             tp->table_id,
                             tp->zone == TABLE_ZONE_INSIDE ? "안" : "밖");
             ui_pos_print_in(side, 3, 0, A_NORMAL, "주문: %d건", sum.order_count);
-            ui_pos_print_in(side, 4, 0, A_NORMAL, "미결제: ₩%d", sum.unpaid_total);
-            ui_pos_print_in(side, 5, 0, A_NORMAL, "DONE: ₩%d", sum.done_total);
+            ui_pos_print_in(side, 4, 0, A_NORMAL, "청구금액: ₩%d", sum.unpaid_total);
+            ui_pos_print_in(side, 5, 0, A_NORMAL, "조리완료(결제대기): ₩%d",
+                            sum.done_total);
             if (staff) {
                 ui_pos_print_in(side, 7, 0,
                                 A_BOLD | COLOR_PAIR(POS_COLOR_STAFF),
@@ -484,7 +483,7 @@ static void ui_draw_pos_home(ServerContext *ctx, const StoreLayout *layout,
             } else {
                 ui_pos_print_in(side, 7, 0, A_DIM, "직원 호출: 없음");
             }
-            ui_pos_draw_button_in(side, 10, POS_COLOR_ACTIVE, "ENTER  결제하기");
+            ui_pos_draw_button_in(side, 10, POS_COLOR_ACTIVE, "ENTER  결제화면");
             ui_pos_draw_button_in(side, 13, POS_COLOR_STAFF, "C  직원호출 해제");
         }
 
@@ -500,7 +499,7 @@ static void ui_draw_pos_home(ServerContext *ctx, const StoreLayout *layout,
     move(footer.top, 0);
     clrtoeol();
     mvprintw(footer.top, 1,
-             "방향키 이동 · Enter 결제 · q 종료");
+             "방향키 이동 · Enter 결제화면 · q 종료");
     move(footer.top + 1, 0);
     clrtoeol();
     mvprintw(footer.top + 1, 1,
@@ -542,13 +541,14 @@ static void ui_draw_pos_payment(ServerContext *ctx, int rows, int cols,
         PosTableSummary sum;
         if (pay_table > 0) {
             ui_pos_table_summary(ctx, pay_table, &sum);
-            ui_pos_print_in(side, 3, 0, A_NORMAL, "미결제 합계");
+            ui_pos_print_in(side, 3, 0, A_NORMAL, "청구 합계");
             ui_pos_print_in(side, 4, 0, A_BOLD, "₩%d", sum.unpaid_total);
-            ui_pos_print_in(side, 6, 0, A_NORMAL, "결제가능(DONE)");
+            ui_pos_print_in(side, 6, 0, A_NORMAL, "조리완료(결제대기)");
             ui_pos_print_in(side, 7, 0, A_BOLD, "₩%d", sum.done_total);
         }
-        ui_pos_print_in(side, side.h - 5, 0, A_DIM, "Enter: 선택 주문 결제(DONE)");
-        ui_pos_print_in(side, side.h - 4, 0, A_DIM, "y: 해당 테이블 DONE 전체 결제");
+        ui_pos_print_in(side, side.h - 5, 0, A_DIM,
+                        "Enter: 결제 확인(조리완료만)");
+        ui_pos_print_in(side, side.h - 4, 0, A_DIM, "y: 테이블 조리완료 전체 결제");
         ui_pos_print_in(side, side.h - 3, 0, A_DIM, "t: 테이블 변경");
     }
 
@@ -576,7 +576,7 @@ static void ui_draw_pos_payment(ServerContext *ctx, int rows, int cols,
         }
         ui_pos_print_in(main, line + shown, 0, a,
                         "#%04d  T%02d  %-8s  ₩%-7d  %s",
-                        o->order_id, o->table_id, status_to_string(o->status),
+                        o->order_id, o->table_id, status_to_label(o->status),
                         o->total_price, first);
         shown++;
     }
@@ -588,7 +588,60 @@ static void ui_draw_pos_payment(ServerContext *ctx, int rows, int cols,
              "↑↓ 선택 · Enter 결제 · y 전체결제 · t 테이블변경 · q 종료");
     move(footer.top + 1, 0);
     clrtoeol();
-    mvprintw(footer.top + 1, 1, "팁: DONE 상태만 결제 가능합니다.");
+    mvprintw(footer.top + 1, 1,
+             "팁: 조리완료 상태만 결제할 수 있습니다. Enter 두 번으로 확정합니다.");
+}
+
+static void ui_draw_pos_pay_confirm(int rows, int cols, int order_id, int total,
+                                    int table_id, int batch) {
+    int w = 44;
+    int h = 9;
+    int y = rows / 2 - h / 2;
+    int x = cols / 2 - w / 2;
+    if (x < 1) {
+        x = 1;
+    }
+    if (y < 1) {
+        y = 1;
+    }
+
+    for (int r = 0; r < h; ++r) {
+        mvprintw(y + r, x, "%*s", w, "");
+    }
+
+    for (int dy = 0; dy < h; ++dy) {
+        mvaddch(y + dy, x, ACS_VLINE);
+        mvaddch(y + dy, x + w - 1, ACS_VLINE);
+        for (int dx = 1; dx < w - 1; ++dx) {
+            mvaddch(y + dy, x + dx, ' ');
+        }
+    }
+    mvaddch(y, x, ACS_ULCORNER);
+    mvaddch(y, x + w - 1, ACS_URCORNER);
+    mvaddch(y + h - 1, x, ACS_LLCORNER);
+    mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+    for (int dx = 1; dx < w - 1; ++dx) {
+        mvaddch(y, x + dx, ACS_HLINE);
+        mvaddch(y + h - 1, x + dx, ACS_HLINE);
+    }
+
+    attron(A_BOLD);
+    mvprintw(y + 1, x + 2, "결제 확인");
+    attroff(A_BOLD);
+    mvhline(y + 2, x + 1, ACS_HLINE, w - 2);
+
+    if (batch) {
+        mvprintw(y + 4, x + 4, "T%02d 테이블 조리완료 주문을", table_id);
+        mvprintw(y + 5, x + 4, "결제하시겠습니까?");
+    } else {
+        mvprintw(y + 4, x + 4, "주문 #%04d (₩%d)", order_id, total);
+        mvprintw(y + 5, x + 4, "결제하시겠습니까?");
+    }
+
+    attron(A_BOLD);
+    mvprintw(y + 7, x + 6, "ENTER 확정");
+    mvprintw(y + 7, x + 24, "ESC/n 취소");
+    attroff(A_BOLD);
 }
 
 static int ui_pos_collect_table_done_ids(ServerContext *ctx, int table_id,
@@ -983,14 +1036,108 @@ static int ui_pos_layout_alloc_slot(StoreLayout *layout) {
     return layout->count++;
 }
 
+typedef struct {
+    int sale_count;
+    long long total_revenue;
+    long long daily_revenue;
+} PosSalesSummary;
+
+static void ui_pos_format_sales_log_line(const char *raw, char *out,
+                                         size_t outsz) {
+    if (!raw || !out || outsz == 0) {
+        return;
+    }
+    out[0] = '\0';
+
+    int id = 0;
+    int table = 0;
+    int total = 0;
+    long long ts = 0;
+    if (sscanf(raw, "SALE id=%d table=%d total=%d ts=%lld", &id, &table, &total,
+               &ts) < 4) {
+        snprintf(out, outsz, "%s", raw);
+        return;
+    }
+
+    char when[32] = "";
+    const char *pt = strstr(raw, "time=");
+    if (pt) {
+        pt += 5;
+        const char *end = strstr(pt, " detail=");
+        size_t n = end ? (size_t)(end - pt) : strlen(pt);
+        if (n >= sizeof(when)) {
+            n = sizeof(when) - 1;
+        }
+        memcpy(when, pt, n);
+        when[n] = '\0';
+    }
+    if (when[0] == '\0' && ts > 0) {
+        struct tm sale_buf;
+        time_t sale_ts = (time_t)ts;
+        struct tm *sale = localtime_r(&sale_ts, &sale_buf);
+        if (sale) {
+            strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", sale);
+        }
+    }
+    if (when[0] == '\0') {
+        strncpy(when, "-", sizeof(when) - 1);
+        when[sizeof(when) - 1] = '\0';
+    }
+
+    snprintf(out, outsz, "[%s]  #%04d  T%02d  ₩%d", when, id, table, total);
+}
+
+static void ui_pos_summarize_sales_log(const char *path, PosSalesSummary *sum) {
+    memset(sum, 0, sizeof(*sum));
+
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm today_buf;
+    struct tm *today = localtime_r(&now, &today_buf);
+
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+        int id = 0;
+        int table = 0;
+        int total = 0;
+        long long ts = 0;
+        if (sscanf(line, "SALE id=%d table=%d total=%d ts=%lld", &id, &table,
+                   &total, &ts) < 4) {
+            continue;
+        }
+
+        sum->sale_count++;
+        sum->total_revenue += total;
+
+        if (today) {
+            struct tm sale_buf;
+            time_t sale_ts = (time_t)ts;
+            struct tm *sale = localtime_r(&sale_ts, &sale_buf);
+            if (sale && sale->tm_year == today->tm_year &&
+                sale->tm_mon == today->tm_mon &&
+                sale->tm_mday == today->tm_mday) {
+                sum->daily_revenue += total;
+            }
+        }
+    }
+    fclose(fp);
+}
+
 static void ui_draw_pos_sales(int rows, int cols) {
     clear();
     UiRect header, main, side, footer;
     ui_pos_layout_frame(rows, cols, POS_TAB_SALES, &header, &main, &side, &footer);
     ui_pos_draw_box(main, "매출 로그 (tail)");
     if (side.w > 0) {
-        ui_pos_draw_box(side, "정보");
+        ui_pos_draw_box(side, "매출 요약");
     }
+
+    PosSalesSummary sum;
+    ui_pos_summarize_sales_log(SALES_LOG_PATH, &sum);
 
     char chunk[16000];
     char err[128];
@@ -1006,17 +1153,45 @@ static void ui_draw_pos_sales(int rows, int cols) {
         bufcopy[sizeof(bufcopy) - 1] = '\0';
         char *ln = strtok_r(bufcopy, "\n", &save);
         while (ln && line < main.h - 3) {
-            ui_pos_print_in(main, line, 0, A_NORMAL, "%s", ln);
+            if (ln[0] == '\0') {
+                ln = strtok_r(NULL, "\n", &save);
+                continue;
+            }
+            if (strncmp(ln, "SALE ", 5) == 0) {
+                char formatted[160];
+                ui_pos_format_sales_log_line(ln, formatted, sizeof(formatted));
+                ui_pos_print_in(main, line, 0, A_NORMAL, "%s", formatted);
+            } else {
+                ui_pos_print_in(main, line, 0, A_NORMAL, "%s", ln);
+            }
             line++;
             ln = strtok_r(NULL, "\n", &save);
         }
     }
 
     if (side.w > 0) {
-        ui_pos_print_in(side, 0, 0, A_DIM, "파일");
-        ui_pos_print_in(side, 1, 0, A_BOLD, "%s", SALES_LOG_PATH);
-        ui_pos_print_in(side, 3, 0, A_DIM, "새로고침");
-        ui_pos_print_in(side, 4, 0, A_NORMAL, "자동(200ms) 갱신");
+        time_t now = time(NULL);
+        struct tm today_buf;
+        struct tm *today = localtime_r(&now, &today_buf);
+        char date_label[32] = "";
+        if (today) {
+            (void)strftime(date_label, sizeof(date_label), "%Y-%m-%d %H:%M",
+                           today);
+        }
+
+        ui_pos_print_in(side, 0, 0, A_DIM, "결제완료(SALE) 기준");
+        if (date_label[0] != '\0') {
+            ui_pos_print_in(side, 1, 0, A_DIM, "오늘: %s", date_label);
+        }
+
+        ui_pos_print_in(side, 3, 0, A_NORMAL, "총 매출 건수");
+        ui_pos_print_in(side, 4, 0, A_BOLD, "%d건", sum.sale_count);
+
+        ui_pos_print_in(side, 6, 0, A_NORMAL, "총 매출 금액");
+        ui_pos_print_in(side, 7, 0, A_BOLD, "₩%lld", sum.total_revenue);
+
+        ui_pos_print_in(side, 9, 0, A_NORMAL, "일 매출 금액");
+        ui_pos_print_in(side, 10, 0, A_BOLD, "₩%lld", sum.daily_revenue);
     }
 
     move(footer.top, 0);
@@ -1061,6 +1236,11 @@ void ui_run_pos(ServerContext *ctx) {
     uint32_t last_staff_rev = 0;
     int dirty = 1;
     time_t last_auto_redraw = 0;
+    int pay_confirm_oid = 0;
+    int pay_confirm_total = 0;
+    int pay_confirm_batch_table = 0;
+    char pos_banner[128] = "";
+    time_t pos_banner_until = 0;
 
     while (!ctx->shutting_down) {
         int rows = 0, cols = 0;
@@ -1103,6 +1283,18 @@ void ui_run_pos(ServerContext *ctx) {
                                           layout_edit_idx, rows, cols);
                 break;
             }
+            if (pay_confirm_oid > 0 || pay_confirm_batch_table > 0) {
+                ui_draw_pos_pay_confirm(rows, cols, pay_confirm_oid,
+                                        pay_confirm_total,
+                                        pay_confirm_batch_table,
+                                        pay_confirm_batch_table > 0);
+            }
+            if (pos_banner[0] != '\0' && time(NULL) <= pos_banner_until) {
+                attron(A_BOLD);
+                mvprintw(rows - 1, 1, "%-*s", cols > 2 ? cols - 2 : 0,
+                         pos_banner);
+                attroff(A_BOLD);
+            }
             refresh();
             dirty = 0;
         }
@@ -1111,28 +1303,79 @@ void ui_run_pos(ServerContext *ctx) {
         if (ch == ERR) {
             continue;
         }
+
+        if (pay_confirm_oid > 0 || pay_confirm_batch_table > 0) {
+            if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+                if (pay_confirm_batch_table > 0) {
+                    int ids[MAX_ORDERS];
+                    int nids = ui_pos_collect_table_done_ids(
+                        ctx, pay_confirm_batch_table, ids, MAX_ORDERS);
+                    for (int i = 0; i < nids; ++i) {
+                        char err[160];
+                        server_pay_order(ctx, ids[i], err, sizeof(err));
+                    }
+                    snprintf(pos_banner, sizeof(pos_banner),
+                             "테이블 T%02d 결제 완료 (%d건)",
+                             pay_confirm_batch_table, nids);
+                } else {
+                    char err[160];
+                    if (server_pay_order(ctx, pay_confirm_oid, err,
+                                         sizeof(err)) == 0) {
+                        snprintf(pos_banner, sizeof(pos_banner),
+                                 "주문 #%04d 결제 완료", pay_confirm_oid);
+                    } else {
+                        snprintf(pos_banner, sizeof(pos_banner), "%.127s", err);
+                    }
+                }
+                pay_confirm_oid = 0;
+                pay_confirm_total = 0;
+                pay_confirm_batch_table = 0;
+                pos_banner_until = time(NULL) + 3;
+                dirty = 1;
+                continue;
+            }
+            if (ch == 27 || ch == 'n' || ch == 'N') {
+                pay_confirm_oid = 0;
+                pay_confirm_total = 0;
+                pay_confirm_batch_table = 0;
+                dirty = 1;
+                continue;
+            }
+            continue;
+        }
+
         if (ch == 'q' || ch == 'Q') {
             ctx->shutting_down = 1;
             break;
         }
         if (ch == KEY_F(1)) {
             tab = POS_TAB_HOME;
+            pay_confirm_oid = 0;
+            pay_confirm_batch_table = 0;
             dirty = 1;
         }
         if (ch == KEY_F(2)) {
             tab = POS_TAB_PAYMENT;
+            pay_confirm_oid = 0;
+            pay_confirm_batch_table = 0;
             dirty = 1;
         }
         if (ch == KEY_F(3)) {
             tab = POS_TAB_MENU;
+            pay_confirm_oid = 0;
+            pay_confirm_batch_table = 0;
             dirty = 1;
         }
         if (ch == KEY_F(4)) {
             tab = POS_TAB_SALES;
+            pay_confirm_oid = 0;
+            pay_confirm_batch_table = 0;
             dirty = 1;
         }
         if (ch == KEY_F(5)) {
             tab = POS_TAB_LAYOUT;
+            pay_confirm_oid = 0;
+            pay_confirm_batch_table = 0;
             dirty = 1;
         }
 
@@ -1155,10 +1398,12 @@ void ui_run_pos(ServerContext *ctx) {
             }
             TablePlacement *tp =
                 layout_find_at(&layout, grid_row, grid_col);
-            if ((ch == '\n' || ch == KEY_ENTER) && tp) {
+            if ((ch == '\n' || ch == '\r' || ch == KEY_ENTER) && tp) {
                 pay_table = tp->table_id;
                 tab = POS_TAB_PAYMENT;
                 sel_payment = 0;
+                pay_confirm_oid = 0;
+                pay_confirm_batch_table = 0;
                 dirty = 1;
             }
             if (ch == 'c' && tp) {
@@ -1172,9 +1417,7 @@ void ui_run_pos(ServerContext *ctx) {
                 (void)err;
                 dirty = 1;
             }
-        }
-
-        if (tab == POS_TAB_PAYMENT) {
+        } else if (tab == POS_TAB_PAYMENT) {
             int idxs[MAX_ORDERS];
             int nshow =
                 ui_pos_collect_table_order_indices(ctx, pay_table, idxs,
@@ -1196,17 +1439,31 @@ void ui_run_pos(ServerContext *ctx) {
                 sel_payment = (sel_payment + 1) % (nshow ? nshow : 1);
                 dirty = 1;
             }
-            if (ch == '\n' || ch == KEY_ENTER) {
+            if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
                 if (sel_payment < nshow) {
                     int oid = 0;
+                    int total = 0;
                     OrderStatus st = STATUS_PAID;
                     pthread_mutex_lock(&ctx->lock);
                     oid = ctx->orders[idxs[sel_payment]].order_id;
                     st = ctx->orders[idxs[sel_payment]].status;
+                    total = ctx->orders[idxs[sel_payment]].total_price;
                     pthread_mutex_unlock(&ctx->lock);
                     if (st == STATUS_DONE) {
-                        char err[160];
-                        server_pay_order(ctx, oid, err, sizeof(err));
+                        pay_confirm_oid = oid;
+                        pay_confirm_total = total;
+                        pay_confirm_batch_table = 0;
+                        dirty = 1;
+                    } else if (st == STATUS_PAID) {
+                        snprintf(pos_banner, sizeof(pos_banner),
+                                 "이미 결제된 주문입니다");
+                        pos_banner_until = time(NULL) + 3;
+                        dirty = 1;
+                    } else {
+                        snprintf(pos_banner, sizeof(pos_banner),
+                                 "조리완료 후 결제할 수 있습니다 (현재: %s)",
+                                 status_to_label(st));
+                        pos_banner_until = time(NULL) + 3;
                         dirty = 1;
                     }
                 }
@@ -1215,17 +1472,19 @@ void ui_run_pos(ServerContext *ctx) {
                 int ids[MAX_ORDERS];
                 int nids = ui_pos_collect_table_done_ids(ctx, pay_table, ids,
                                                          MAX_ORDERS);
-                for (int i = 0; i < nids; ++i) {
-                    char err[160];
-                    server_pay_order(ctx, ids[i], err, sizeof(err));
-                }
                 if (nids > 0) {
+                    pay_confirm_batch_table = pay_table;
+                    pay_confirm_oid = 0;
+                    pay_confirm_total = 0;
+                    dirty = 1;
+                } else {
+                    snprintf(pos_banner, sizeof(pos_banner),
+                             "조리완료된 주문이 없습니다");
+                    pos_banner_until = time(NULL) + 3;
                     dirty = 1;
                 }
             }
-        }
-
-        if (tab == POS_TAB_MENU) {
+        } else if (tab == POS_TAB_MENU) {
             pthread_mutex_lock(&ctx->lock);
             int mc = ctx->menu.count;
             pthread_mutex_unlock(&ctx->lock);

@@ -490,10 +490,16 @@ int server_pay_order(ServerContext *ctx, int order_id, char *err,
         return -1;
     }
     o->status = STATUS_PAID;
+    time_t sale_ts = time(NULL);
+    struct tm sale_tm;
+    char time_label[32] = "";
+    if (localtime_r(&sale_ts, &sale_tm)) {
+        strftime(time_label, sizeof(time_label), "%Y-%m-%d %H:%M:%S", &sale_tm);
+    }
     char slog[MAX_PROTO_LINE];
     snprintf(slog, sizeof(slog),
-             "SALE id=%d table=%d total=%d ts=%lld detail=", order_id,
-             o->table_id, o->total_price, (long long)time(NULL));
+             "SALE id=%d table=%d total=%d ts=%lld time=%s detail=", order_id,
+             o->table_id, o->total_price, (long long)sale_ts, time_label);
     size_t sl = strlen(slog);
     for (int i = 0; i < o->item_count && sl + 40 < sizeof(slog); ++i) {
         int n =

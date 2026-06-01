@@ -19,6 +19,23 @@ const char *status_to_string(OrderStatus st) {
     }
 }
 
+const char *status_to_label(OrderStatus st) {
+    switch (st) {
+    case STATUS_WAITING:
+        return "대기";
+    case STATUS_COOKING:
+        return "조리중";
+    case STATUS_DONE:
+        return "조리완료";
+    case STATUS_PAID:
+        return "결제완료";
+    case STATUS_CANCELLED:
+        return "취소";
+    default:
+        return "대기";
+    }
+}
+
 OrderStatus status_from_string(const char *s) {
     if (!s) {
         return STATUS_WAITING;

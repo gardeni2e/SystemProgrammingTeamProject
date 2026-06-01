@@ -67,6 +67,7 @@ typedef struct {
 } MenuCatalog;
 
 const char *status_to_string(OrderStatus st);
+const char *status_to_label(OrderStatus st);
 OrderStatus status_from_string(const char *s);
 
 #endif

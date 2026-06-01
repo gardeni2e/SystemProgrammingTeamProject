@@ -30,7 +30,7 @@ static void ui_draw_kitchen(Order *orders, int count, int sel, int rows, int col
         
         if (i == 0) mvprintw(2, start_x + 2, "Waiting");
         if (i == 1) mvprintw(2, start_x + 2, "Cooking");
-        if (i == 2) mvprintw(2, start_x + 2, "Done.");
+        if (i == 2) mvprintw(2, start_x + 2, "조리완료");
 
         
         for (int y = 3; y < rows - 2; ++y) {
