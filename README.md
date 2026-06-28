@@ -98,22 +98,22 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
 
 ```mermaid
 flowchart LR
-    A[table_client<br/>손님용 테이블 오더] <-->|TCP Socket| B[pos_server<br/>POS + TCP Server]
-    B <-->|TCP Socket| C[kitchen_client<br/>주방 주문 보드]
+    T[table_client<br/>테이블 오더 단말] <-->|주문 생성 / 상태 수신 / 직원 호출| P[pos_server<br/>POS 서버]
+    P <-->|신규 주문 전달 / 조리 상태 수신| K[kitchen_client<br/>주방 단말]
 
-    A --> A1[메뉴 조회]
-    A --> A2[장바구니 관리]
-    A --> A3[주문 생성 / 취소]
-    A --> A4[직원 호출]
+    T --> T1[메뉴 조회]
+    T --> T2[장바구니 관리]
+    T --> T3[주문 생성]
+    T --> T4[WAITING 상태 주문 취소]
 
-    B --> B1[주문 수신]
-    B --> B2[결제 처리]
-    B --> B3[메뉴 CRUD]
-    B --> B4[매출 로그 저장]
+    P --> P1[클라이언트 연결 관리]
+    P --> P2[주문 상태 동기화]
+    P --> P3[결제 및 매출 로그]
+    P --> P4[메뉴 및 테이블 관리]
 
-    C --> C1[주문 확인]
-    C --> C2[조리 상태 변경]
-    C --> C3[상태 동기화]
+    K --> K1[주문 확인]
+    K --> K2[조리 상태 변경]
+    K --> K3[POS로 상태 전송]
 ```
 
 ### 주문 상태 흐름
@@ -184,28 +184,6 @@ stateDiagram-v2
 | 직원 호출 알림  | 테이블에서 발생한 직원 호출 이벤트를 주방 화면에서도 확인할 수 있습니다.         |
 
 ---
-
-### 🔄 Component Interaction Flow
-
-```mermaid
-flowchart LR
-    T[table_client<br/>테이블 오더 단말] <-->|주문 생성 / 상태 수신 / 직원 호출| P[pos_server<br/>POS 서버]
-    P <-->|신규 주문 전달 / 조리 상태 수신| K[kitchen_client<br/>주방 단말]
-
-    T --> T1[메뉴 조회]
-    T --> T2[장바구니 관리]
-    T --> T3[주문 생성]
-    T --> T4[WAITING 상태 주문 취소]
-
-    P --> P1[클라이언트 연결 관리]
-    P --> P2[주문 상태 동기화]
-    P --> P3[결제 및 매출 로그]
-    P --> P4[메뉴 및 테이블 관리]
-
-    K --> K1[주문 확인]
-    K --> K2[조리 상태 변경]
-    K --> K3[POS로 상태 전송]
-```
 
 ---
 
