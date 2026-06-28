@@ -6,10 +6,11 @@
 
 <br/>
 
-
-
-
-\
+![Language](https://img.shields.io/badge/Language-C-00599C?style=for-the-badge\&logo=c\&logoColor=white)
+![Build](https://img.shields.io/badge/Build-Makefile-6D00CC?style=for-the-badge)
+![OS](https://img.shields.io/badge/OS-Ubuntu_24.04-E95420?style=for-the-badge\&logo=ubuntu\&logoColor=white)
+![Network](https://img.shields.io/badge/Network-TCP_Socket-2E8B57?style=for-the-badge)
+![UI](https://img.shields.io/badge/UI-ncursesw-4B8BBE?style=for-the-badge)
 
 <br/>
 
@@ -42,6 +43,7 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
 * [Overview](#-overview)
 * [Key Features](#-key-features)
 * [System Architecture](#-system-architecture)
+* [Component Overview](#-component-overview)
 * [Tech Stack](#-tech-stack)
 * [Project Structure](#-project-structure)
 * [Build](#-build)
@@ -49,7 +51,9 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
 * [Test](#-test)
 * [Demo Flow](#-demo-flow)
 * [System Programming Points](#-system-programming-points)
+* [Technical Challenges & Solutions](#-technical-challenges--solutions)
 * [Team](#-team)
+* [Summary](#-summary)
 * [Limitations & Future Work](#-limitations--future-work)
 
 ---
@@ -73,7 +77,7 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
 
 ## 🏗️ System Architecture
 
-본 시스템은 세 개의 실행 프로그램으로 구성됩니다.
+본 시스템은 `table_client`, `pos_server`, `kitchen_client` 세 개의 실행 프로그램으로 구성됩니다.
 
 ```mermaid
 flowchart LR
@@ -106,6 +110,81 @@ stateDiagram-v2
     DONE --> PAID: POS 결제 완료
     PAID --> [*]
     CANCELLED --> [*]
+```
+
+---
+
+## 🧩 Component Overview
+
+본 시스템은 `table_client`, `pos_server`, `kitchen_client` 세 모듈이 TCP 소켓을 통해 실시간으로 연동되는 구조입니다.
+
+| 🧾 table_client                                                              | ↔ | 🖥️ pos_server                                                                  | ↔ | 🍳 kitchen_client                                                         |
+| ---------------------------------------------------------------------------- | - | ------------------------------------------------------------------------------- | - | ------------------------------------------------------------------------- |
+| **손님용 테이블 오더 단말**                                                            |   | **중앙 POS 서버 및 관리 단말**                                                           |   | **주방용 주문 확인 단말**                                                          |
+| 테이블에서 메뉴를 조회하고 장바구니에 담아 주문을 생성하는 클라이언트입니다. 주문 상태 확인, 직원 호출, 주문 취소 기능을 제공합니다. |   | 테이블과 주방 클라이언트의 연결을 관리하는 중심 서버입니다. 주문 수신, 상태 동기화, 메뉴 관리, 결제 처리, 매출 로그 저장을 담당합니다. |   | 주방에서 접수된 주문을 확인하고 조리 상태를 변경하는 클라이언트입니다. 변경된 상태는 POS와 테이블 화면에 실시간으로 반영됩니다. |
+
+---
+
+### 🧾 table_client
+
+| 기능        | 설명                                                            |
+| --------- | ------------------------------------------------------------- |
+| 메뉴 조회     | 카드형 메뉴판 화면을 구성하고, 카테고리별 메뉴를 조회할 수 있습니다.                       |
+| 메뉴 이미지 출력 | `chafa`를 활용하여 터미널 환경에서도 메뉴 이미지를 확인할 수 있습니다.                   |
+| 장바구니 관리   | 선택한 메뉴를 장바구니에 담고, 수량 변경 및 삭제를 수행할 수 있습니다.                     |
+| 주문 생성     | 장바구니에 담긴 메뉴를 확정하여 POS 서버로 주문을 전송합니다.                          |
+| 주문 상태 확인  | 주문 후 `WAITING`, `COOKING`, `DONE` 등의 상태를 테이블 화면에서 확인할 수 있습니다. |
+| 직원 호출     | 테이블에서 직원 호출 이벤트를 발생시키고, POS 및 주방 화면에 알림을 표시합니다.               |
+| 주문 취소     | 주방에서 조리를 시작하기 전인 `WAITING` 상태의 주문을 취소할 수 있습니다.                |
+
+---
+
+### 🖥️ pos_server
+
+| 기능          | 설명                                                |
+| ----------- | ------------------------------------------------- |
+| TCP 서버 역할   | 테이블 클라이언트와 주방 클라이언트의 접속을 수락하고 통신을 관리합니다.          |
+| 다중 클라이언트 처리 | `pthread`를 사용하여 여러 테이블 및 주방 클라이언트 요청을 동시에 처리합니다.  |
+| 주문 상태 동기화   | 주문 상태가 변경되면 POS, 테이블, 주방 화면에 동일한 상태가 반영되도록 관리합니다. |
+| 수신 주문 관리    | 테이블에서 생성된 주문을 수신하고, 주문 목록 및 현재 상태를 관리합니다.         |
+| 결제 처리       | 조리가 완료된 주문을 결제 처리하고, 결제 정보를 `sales.log`에 저장합니다.   |
+| 메뉴 관리       | 메뉴 추가, 수정, 삭제 및 품절 상태 변경을 수행합니다.                  |
+| 테이블 수 관리    | 설정 파일을 통해 매장 내 테이블 수를 관리합니다.                      |
+
+---
+
+### 🍳 kitchen_client
+
+| 기능        | 설명                                                |
+| --------- | ------------------------------------------------- |
+| 주문 확인     | 테이블에서 들어온 신규 주문을 실시간으로 수신하고 주방 화면에 표시합니다.         |
+| 주문별 메뉴 확인 | 주문 번호와 함께 주문된 메뉴 및 수량을 확인할 수 있습니다.                |
+| 조리 상태 변경  | 주문 상태를 `WAITING → COOKING → DONE` 순서로 변경할 수 있습니다. |
+| 상태 전파     | 변경된 조리 상태를 POS 서버로 전송하여 POS와 테이블 화면에 실시간으로 반영합니다. |
+| 직원 호출 알림  | 테이블에서 발생한 직원 호출 이벤트를 주방 화면에서도 확인할 수 있습니다.         |
+
+---
+
+### 🔄 Component Interaction Flow
+
+```mermaid
+flowchart LR
+    T[table_client<br/>테이블 오더 단말] <-->|주문 생성 / 상태 수신 / 직원 호출| P[pos_server<br/>POS 서버]
+    P <-->|신규 주문 전달 / 조리 상태 수신| K[kitchen_client<br/>주방 단말]
+
+    T --> T1[메뉴 조회]
+    T --> T2[장바구니 관리]
+    T --> T3[주문 생성]
+    T --> T4[WAITING 상태 주문 취소]
+
+    P --> P1[클라이언트 연결 관리]
+    P --> P2[주문 상태 동기화]
+    P --> P3[결제 및 매출 로그]
+    P --> P4[메뉴 및 테이블 관리]
+
+    K --> K1[주문 확인]
+    K --> K2[조리 상태 변경]
+    K --> K3[POS로 상태 전송]
 ```
 
 ---
@@ -342,6 +421,7 @@ sequenceDiagram
 
 ## 🧩 System Programming Points
 
+본 프로젝트는 시스템프로그래밍 수업에서 학습한 다양한 개념을 실제 프로그램에 적용하는 것을 목표로 했습니다.
 
 | 구분                 | 사용 요소                                           | 적용 목적                         |
 | ------------------ | ----------------------------------------------- | ----------------------------- |
@@ -369,8 +449,8 @@ sequenceDiagram
 
 ## 👥 Team
 
-| 이름  | 학번         | 담당 역할             |
-| --- | ---------- | ----------------- |
+| 이름  |         학번 | 담당 역할             |
+| --- | ---------: | ----------------- |
 | 장시온 | 2022110617 | Kitchen 기능 구현     |
 | 이상윤 | 2022113736 | POS 및 서버 전체 기능 구현 |
 | 이정원 | 2022116284 | Table 기능 구현       |
@@ -420,87 +500,3 @@ sequenceDiagram
 **Table Order · POS · Kitchen Display**
 
 </div>
-
-
-
-다중 터미널 POS 및 독립형 테이블 오더 시스템
-팀 정보
-팀명: team 18
-| 이름 | 학번 | 역할 분담 | | 이상윤 | 2022113736 | POS 및 전반적인 기능 구현 | | 이정원 | 2022116284 | Table 기능 구현 | | 장시온 | 2022110617 | Kitchen 기능 구현 |
-
-프로젝트 개요
-Ubuntu 24.04 로컬 네트워크 환경에서 외부 클라우드 없이 동작하는 테이블 오더·주방 디스플레이·POS 통합 시스템입니다. pos_server 단일 바이너리가 TCP 서버와 POS ncurses UI를 동시에 수행하고, table_client·kitchen_client가 각각 손님 단말과 주방 단말 역할을 합니다. 주문 상태는 WAITING → COOKING → DONE → PAID로 진행되며, 결제 전 단계에서는 CANCELLED로 취소할 수 있습니다. 모든 통신은 줄바꿈(\n)으로 구분되는 문자열 프로토콜로 이루어지고, 메뉴·설정·매출 데이터는 파일 로그로 지속화합니다.
-
-빠른 시작 (Quick Start)
-# 1) 의존성 설치 후 빌드
-sudo apt update && sudo apt install -y build-essential libncurses-dev
-cd SystemProgrammingTeamProject
-make
-
-# 2) 4개 터미널에서 실행 (UTF-8 로케일 권장)
-./bin/pos_server 9090                     # 터미널 1: POS 서버
-./bin/kitchen_client 127.0.0.1 9090       # 터미널 2: 주방 단말
-./bin/table_client 127.0.0.1 9090 1       # 터미널 3: 1번 테이블
-./bin/table_client 127.0.0.1 9090 2       # 터미널 4: 2번 테이블 (선택)
-터미널 인코딩이 UTF-8인지 확인하세요. 한글이 깨지면 export LANG=ko_KR.UTF-8(또는 C.UTF-8)로 설정합니다. ncurses UI가 잘리지 않도록 터미널 창은 최소 100×30 이상을 권장합니다.
-
-주요 기능
-메뉴 CSV 관리 및 테이블 장바구니 주문: data/menu.csv를 로드하고 품절 플래그를 검사한 뒤 ORDER_CREATE를 송신합니다.
-다중 클라이언트 소켓 서버: pthread 기반 수락/세션 처리와 주문 이벤트 브로드캐스트(ORDER_EVENT)로 실시간 동기화를 제공합니다.
-관리자 기능: POS 화면에서 메뉴 CRUD·품절 토글·테이블 수 조정 후 설정 파일에 즉시 반영합니다.
-주방 상태 관리 & 직원 호출: 주방 단말에서 상태 전이를 올리고, 테이블 단말은 CALL_STAFF로 POS/주방에 알림을 띄웁니다.
-주문 취소: 결제 전(WAITING/COOKING) 주문은 ORDER_CANCEL로 취소하여 CANCELLED 상태로 전파합니다.
-결제 및 매출 로그: DONE 주문만 PAYMENT_REQUEST로 결제 처리하여 data/sales.log에 매출 라인을 남기고 상태를 PAID로 전파합니다.
-SIGINT 안전 종료 & 선택적 chafa 미리보기: Ctrl+C 시 소켓과 설정을 정리하고, data/img_<메뉴ID>.png와 chafa 설치 시 메뉴 이미지 미리보기를 제공합니다.
-통신 프로토콜
-모든 메시지는 한 줄 단위이며 줄바꿈(\n)으로 종료됩니다. 필드 구분자는 파이프(|), 항목 구분자는 ;와 ,를 사용합니다.
-
-클라이언트 → 서버
-메시지	형식 예시	설명
-테이블 접속	HELLO TABLE 1	테이블 단말이 테이블 번호와 함께 접속
-주문 생성	ORDER_CREATE|table=1|items=10:2,11:1	items는 메뉴ID:수량 쌍을 ,로 나열
-상태 변경	ORDER_UPDATE|order_id=5|status=COOKING	주방 단말이 주문 상태 전이
-주문 취소	ORDER_CANCEL|order_id=5	결제 전 주문 취소
-결제 요청	PAYMENT_REQUEST|order_id=5	DONE 주문 결제
-직원 호출	CALL_STAFF|table=1	테이블 단말에서 호출
-서버 → 클라이언트 (브로드캐스트)
-메시지	형식 예시	설명
-메뉴 응답	MENU_RESPONSE|10,아메리카노,3000,0,커피,1;11,...	id,이름,가격,품절,분류,인기 항목을 ;로 나열
-주문 이벤트	ORDER_EVENT|order_id=5|table=1|status=DONE|total=9000|created=<epoch>|items=10:2:아메리카노:3000;...	주문 생성·상태 변경 시 전체 단말에 전파
-직원 호출 알림	STAFF_CALL|table=1	POS/주방에 호출 표시
-이름 필드에 포함된 , ; \| : 개행은 서버에서 _로 치환(sanitize)하여 프레이밍 깨짐을 방지합니다.
-
-사용한 시스템콜 및 목적
-계층	대표 syscall/API	사용 목적
-네트워크	socket, bind, listen, accept, connect, shutdown, setsockopt	IPv4 TCP 서버/클라이언트 채널 구축 및 종료
-I/O	read, write, open, close, fsync	소켓 프레이밍·메뉴 CSV·설정·로그 파일 입출력
-파일 메타	stat, fstat, lseek, rename	파일 존재/크기 확인, 매출 tail 조회, 임시파일 후 rename 원자적 저장
-프로세스/동기화	fork, waitpid, execlp, popen, pthread_*, sigaction	chafa 이미지 렌더링 자식 프로세스, 서버 스레드/뮤텍스, SIGINT 처리
-빌드 방법
-sudo apt update
-sudo apt install -y build-essential libncurses-dev
-cd SystemProgrammingTeamProject
-make
-한글 UI는 UTF-8 로케일 + -lncursesw(wide) 조합으로 렌더링합니다(ui_pos.c·ui_table.c·ui_kitchen.c에서 <ncursesw/ncurses.h> 사용, 클라이언트에서 setlocale 호출). 터미널 인코딩이 UTF-8인지 확인하세요.
-
-libncurses-dev가 wide-character(ncursesw) 헤더와 라이브러리를 함께 제공합니다. (구버전 문서의 libncursesw5-dev는 libncurses-dev로 통합된 전환 패키지이며, libncursesw6-dev라는 패키지는 존재하지 않습니다.)
-
-추가로 이미지 미리보기를 시험하려면 sudo apt install -y chafa 후 data/img_<메뉴ID>.png 파일을 배치합니다. chafa가 없어도 나머지 기능은 정상 동작합니다.
-
-실행 방법
-# 터미널 1
-./bin/pos_server 9090
-
-# 터미널 2
-./bin/kitchen_client 127.0.0.1 9090
-
-# 터미널 3
-./bin/table_client 127.0.0.1 9090 1
-
-# 터미널 4 (선택)
-./bin/table_client 127.0.0.1 9090 2
-Makefile 헬퍼:
-
-make run-server PORT=9090
-make run-kitchen HOST=127.0.0.1 PORT=9090
-make run-table HOST=127.0.0.1 PORT=9090 TABLE=2
