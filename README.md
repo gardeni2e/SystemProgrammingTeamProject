@@ -389,37 +389,7 @@ make test
 
 ---
 
-## 🎬 Demo Flow
-
-아래 순서로 프로젝트의 핵심 기능을 시연할 수 있습니다.
-
-```mermaid
-sequenceDiagram
-    participant T as table_client
-    participant P as pos_server
-    participant K as kitchen_client
-
-    P->>P: POS 서버 실행
-    K->>P: 주방 클라이언트 연결
-    T->>P: 테이블 클라이언트 연결
-
-    T->>T: 메뉴 조회 및 장바구니 추가
-    T->>P: ORDER_CREATE 전송
-    P->>K: 신규 주문 브로드캐스트
-    P->>T: 주문 접수 상태 동기화
-
-    K->>P: WAITING → COOKING 변경
-    P->>T: 조리 중 상태 반영
-
-    K->>P: COOKING → DONE 변경
-    P->>T: 조리 완료 상태 반영
-
-    P->>P: 결제 처리
-    P->>P: sales.log 저장
-    P->>T: PAID 상태 반영
-```
-
-### 시연 체크리스트
+### 🎬 시연 체크리스트
 
 * [ ] POS 서버 실행
 * [ ] 주방 클라이언트 연결
@@ -451,18 +421,6 @@ sequenceDiagram
 | Process Control    | `fork`, `waitpid`                               | 선택적 이미지 렌더링 프로세스 처리           |
 | Terminal UI        | `ncursesw`                                      | POS, 테이블, 주방 화면 구성            |
 | Event Handling     | non-blocking receive loop                       | 주문, 호출, 상태 변경 이벤트 실시간 반영      |
-
----
-
-## 🧱 Technical Challenges & Solutions
-
-| 문제 상황                                 | 해결 방법                                                       |
-| ------------------------------------- | ----------------------------------------------------------- |
-| 여러 테이블이 동시에 접속할 때 서버 블로킹 발생           | `accept()`로 연결 수락 후 `pthread_create()`를 통해 클라이언트별 처리 스레드 생성 |
-| 주문 취소와 주방 상태 변경이 동시에 발생할 때 데이터 불일치 가능 | `pthread_mutex_lock()`으로 주문 데이터 접근 직렬화                      |
-| 이미지 기반 메뉴판 렌더링 후 화면 잔상이 남는 문제         | 이미지 출력 로직을 분리하고 화면 전환 시 출력 영역 초기화                           |
-| 설정 파일 변경 중 프로그램이 종료될 경우 데이터 손상 가능     | 임시 파일 저장 후 `fsync()`와 `rename()`을 사용해 원자적 저장 처리             |
-| 서버 종료 시 클라이언트 소켓 정리 문제                | `SIGINT` 핸들러에서 `shutdown()` 및 `close()` 처리                  |
 
 ---
 
