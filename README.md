@@ -50,7 +50,7 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
   테이블 주문 생성, 주방 상태 변경, POS 결제 처리까지의 전체 흐름
 </p>
 <p align="center">
-  전체 데모 영상: <a href="docs/demo_full.mp4">demo_full.mov</a>
+  전체 데모 영상: <a href="docs/demo_full.mov">demo_full</a>
 </p>
 
 ---
