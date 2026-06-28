@@ -44,7 +44,7 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
   
 
 </p>
-/home/ljw9861/SystemProgrammingTeamProject/docs/demo_preview.gif
+  <img src="docs/demo/demo_preview.gif" width="850" alt="프로젝트 데모 GIF">
 <p align="center">
   <b>Table Order → POS Server → Kitchen Client</b><br/>
   테이블 주문 생성, 주방 상태 변경, POS 결제 처리까지의 전체 흐름
