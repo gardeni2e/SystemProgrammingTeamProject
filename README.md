@@ -185,8 +185,6 @@ stateDiagram-v2
 
 ---
 
----
-
 ## 🛠️ Tech Stack
 
 | 구분               | 사용 기술         |
