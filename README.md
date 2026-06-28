@@ -38,6 +38,20 @@ POS는 주문 접수와 결제, 메뉴 관리, 매출 기록을 담당합니다.
 
 ---
 
+## 🎥 Demo Preview
+
+<p align="center">
+  
+
+</p>
+
+<p align="center">
+  <b>Table Order → POS Server → Kitchen Client</b><br/>
+  테이블 주문 생성, 주방 상태 변경, POS 결제 처리까지의 전체 흐름
+</p>
+
+---
+
 ## 🧭 Table of Contents
 
 * [Overview](#-overview)
