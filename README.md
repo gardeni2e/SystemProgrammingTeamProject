@@ -159,6 +159,7 @@ stateDiagram-v2
 
 ### 🖥️ pos_server
 <p align="center"> <img src="docs/pos_server.png" width="850" alt="pos_server 화면"> </p>
+
 | 기능          | 설명                                                |
 | ----------- | ------------------------------------------------- |
 | TCP 서버 역할   | 테이블 클라이언트와 주방 클라이언트의 접속을 수락하고 통신을 관리합니다.          |
@@ -173,6 +174,7 @@ stateDiagram-v2
 
 ### 🍳 kitchen_client
 <p align="center"> <img src="docs/kitchen_client.png" width="850" alt="kitchen_client 화면"> </p>
+
 | 기능        | 설명                                                |
 | --------- | ------------------------------------------------- |
 | 주문 확인     | 테이블에서 들어온 신규 주문을 실시간으로 수신하고 주방 화면에 표시합니다.         |
