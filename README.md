@@ -1,3 +1,4 @@
+<img width="2555" height="1327" alt="table_client" src="https://github.com/user-attachments/assets/cebb16ed-4400-43bb-9e8c-e17d45f5c8fb" />
 <div align="center">
 
 # 🍽️ 다중 터미널 POS & 독립형 테이블 오더 시스템
